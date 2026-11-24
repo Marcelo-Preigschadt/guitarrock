@@ -46,8 +46,8 @@ async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6
     if not db.worker_online() or not importlib.util.find_spec("demucs"):
         raise HTTPException(503, "O servidor de separação não está disponível. Conecte um servidor com o worker ativo.")
     extension = Path(file.filename or "").suffix.lower()
-    if extension not in {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac"}:
-        raise HTTPException(415, "Envie MP3, WAV, FLAC, OGG, M4A ou AAC.")
+    if extension not in {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".webm", ".weba", ".opus"}:
+        raise HTTPException(415, "Envie MP3, WAV, FLAC, OGG, M4A, AAC, WebM ou Opus.")
     try:
         job = db.create(key, Path(file.filename or "audio").name[:180], model, transcribe)
     except ValueError as error:

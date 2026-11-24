@@ -6,7 +6,7 @@ Estúdio web para carregar uma gravação, separar instrumentos e gerar automati
 
 ## Funcionalidades implementadas
 
-- Importação local de MP3, WAV, FLAC, OGG e M4A, conforme os codecs do navegador.
+- Importação local de MP3, WAV, FLAC, OGG, M4A, AAC, WebM e Opus, conforme os codecs do navegador. WebM pode conter vídeo: o processamento extrai sua pista de áudio automaticamente.
 - Reprodução multifaixa usando um único relógio Web Audio e controle de volume, mute e solo por pista.
 - Controle de visibilidade da notação independente do mute do áudio.
 - Forma de onda com posição de reprodução, marcadores arrastáveis e repetição A–B.
@@ -138,6 +138,10 @@ npm run build
 
 # Executa Demucs e Basic Pitch reais; baixa os pesos se necessário.
 .venv/bin/python scripts/smoke_pipeline.py
+
+# Mesma integração com arquivos realmente codificados em WebM/Opus e MP3.
+RIFFSYNC_SMOKE_FORMAT=webm .venv/bin/python scripts/smoke_pipeline.py
+RIFFSYNC_SMOKE_FORMAT=mp3 .venv/bin/python scripts/smoke_pipeline.py
 ```
 
 O teste de modelos usa uma gravação sintetizada de 5 segundos, passa pelo endpoint de upload, separa seis instrumentos, transcreve os stems e verifica o download dos seis WAVs. Ele valida a integração; não mede qualidade musical em gravações comerciais.

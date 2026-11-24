@@ -684,7 +684,7 @@ export default function App() {
       <input
         ref={audioInput}
         type="file"
-        accept="audio/*,.mp3,.wav,.flac,.m4a,.ogg,.aac"
+        accept="audio/*,video/webm,.mp3,.wav,.flac,.m4a,.ogg,.aac,.webm,.weba,.opus"
         className="sr-only"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -918,7 +918,7 @@ export default function App() {
               >
                 <FolderOpen size={17} /> Carregar música
               </button>
-              <small>MP3, WAV, FLAC, M4A e OGG · até 200 MB</small>
+              <small>MP3, WAV, FLAC, M4A, OGG, AAC, WebM e Opus · até 200 MB</small>
               <div className="upload-bottom">
                 <span>Quer conhecer primeiro?</span>
                 <button

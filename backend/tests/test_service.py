@@ -126,6 +126,23 @@ class ServiceTests(unittest.TestCase):
         response = self.client.post('/api/jobs', headers=HEADERS, files={'file':('audio.mp3', b'test', 'audio/mpeg')})
         self.assertEqual(response.status_code, 503)
 
+    def test_webm_weba_and_opus_enter_the_same_queue_as_mp3(self):
+        with patch('riffsync.api.importlib.util.find_spec', return_value=object()), patch('riffsync.api.db.worker_online', return_value=True):
+            for name, mime in [('audio.WEBM','video/webm'), ('audio.weba','audio/webm'), ('audio.opus','audio/ogg')]:
+                with self.subTest(name=name):
+                    response = self.client.post('/api/jobs', headers=HEADERS, files={'file':(name, b'original-upload', mime)})
+                    self.assertEqual(response.status_code, 202, response.text)
+                    job_id = response.json()['id']
+                    self.assertEqual(response.json()['status'], 'queued')
+                    self.assertEqual((config.DATA/job_id/('input'+Path(name).suffix.lower())).read_bytes(), b'original-upload')
+                    self.client.post(f'/api/jobs/{job_id}/cancel', headers=HEADERS)
+
+    def test_unsupported_extension_still_returns_a_format_error(self):
+        with patch('riffsync.api.importlib.util.find_spec', return_value=object()), patch('riffsync.api.db.worker_online', return_value=True):
+            response = self.client.post('/api/jobs', headers=HEADERS, files={'file':('document.pdf', b'document', 'application/pdf')})
+            self.assertEqual(response.status_code, 415)
+            self.assertIn('WebM', response.json()['detail'])
+
     def test_existing_failed_jobs_expose_diagnostic_only_to_owner(self):
         job = self.job(); directory = config.DATA / job['id']; directory.mkdir()
         (directory/'separation.log').write_text('Traceback\nRuntimeError: out of memory')

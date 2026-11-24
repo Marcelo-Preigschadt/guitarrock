@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 import struct
 import tempfile
 import wave
@@ -38,10 +39,20 @@ def main():
     with tempfile.TemporaryDirectory(prefix="riffsync-smoke-") as temp:
         config.DATA = Path(temp) / "data"
         source = Path(temp) / "fixture.wav"; fixture(source)
+        input_format = os.environ.get('RIFFSYNC_SMOKE_FORMAT', 'wav')
+        if input_format not in {'wav', 'mp3', 'webm'}:
+            raise ValueError('RIFFSYNC_SMOKE_FORMAT deve ser wav, mp3 ou webm')
+        if input_format != 'wav':
+            encoded = Path(temp) / f'fixture.{input_format}'
+            codec = 'libopus' if input_format == 'webm' else 'libmp3lame'
+            subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', str(source), '-c:a', codec, str(encoded)], check=True)
+            source = encoded
+        upload_name = os.environ.get('RIFFSYNC_SMOKE_UPLOAD_NAME', source.name)
+        mime = {'wav':'audio/wav', 'mp3':'audio/mpeg', 'webm':'audio/webm'}[input_format]
         with TestClient(app) as client:
             db.heartbeat("smoke-test")
             response = client.post('/api/jobs', headers={'X-Workspace-Key':'smoke_' + 'a'*60},
-                                   files={'file':('fixture.wav', source.read_bytes(), 'audio/wav')},
+                                   files={'file':(upload_name, source.read_bytes(), mime)},
                                    data={'model':'htdemucs_6s','transcribe':'true'})
             assert response.status_code == 202, response.text
             job = db.claim('smoke-test')
@@ -54,7 +65,7 @@ def main():
             for track in result['result']['tracks']:
                 audio = client.get(f"/api/jobs/{job['id']}/files/{track['file']}", headers={'X-Workspace-Key':'smoke_'+'a'*60})
                 assert audio.status_code == 200 and len(audio.content) > 1000
-            print(json.dumps({'status':result['status'], 'tracks':len(result['result']['tracks']),
+            print(json.dumps({'input_format':input_format, 'upload_name':upload_name, 'status':result['status'], 'tracks':len(result['result']['tracks']),
                               'notes':{t['kind']:len(t.get('notes',[])) for t in result['result']['tracks']},
                               'chords':len(result['result']['chords']), 'warnings':result['warnings']}, ensure_ascii=False))
 
