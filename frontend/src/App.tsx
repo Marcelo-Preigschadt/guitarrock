@@ -86,6 +86,8 @@ export default function App() {
   const [autoFollow, setAutoFollow] = useState(true);
   const [job, setJob] = useState<Job | null>(null);
   const [jobNotice, setJobNotice] = useState("");
+  const [separationError, setSeparationError] = useState("");
+  const [connectionError, setConnectionError] = useState("");
   const [jobRevision, setJobRevision] = useState(0);
   const [apiBase, setApiBase] = useState(serverBase);
   const [connection, setConnection] = useState<Health | null>(null);
@@ -114,6 +116,10 @@ export default function App() {
     [],
   );
   const jobActive = job?.status === "queued" || job?.status === "running";
+  const canSeparate =
+    !!project &&
+    !project.demo &&
+    project.tracks.some((track) => track.kind === "original");
   const active = project ? activeCue(project.cues, time) : null;
 
   useEffect(() => {
@@ -201,6 +207,7 @@ export default function App() {
     setLoopEnabled(false);
     setJob(null);
     setJobNotice("");
+    setSeparationError("");
     try {
       const waves: Record<string, number[]> = {};
       for (const t of session.project.tracks) {
@@ -486,6 +493,7 @@ export default function App() {
 
   const connect = async () => {
     setChecking(true);
+    setConnectionError("");
     try {
       const base = apiBase.trim().replace(/\/$/, "");
       if (base && !/^https?:\/\//.test(base))
@@ -501,43 +509,70 @@ export default function App() {
           ? "Servidor conectado e pronto para separar instrumentos."
           : "API conectada. O worker de separação ainda precisa ser iniciado.",
       );
-    } catch {
+    } catch (e) {
       setConnection(null);
-      notify(
-        "Servidor não encontrado. Confira a URL e a configuração de acesso do servidor.",
+      setConnectionError(
+        `Não foi possível conectar ao servidor: ${message(e)}`,
       );
     } finally {
       setChecking(false);
     }
   };
-  const separate = async () => {
+  const separate = async (requestedBase = serverBase()) => {
     const p = projectRef.current,
       original = p?.tracks.find((t) => t.kind === "original");
-    if (!p || !original || busy || jobActive) return;
-    setBusy("Enviando a música para análise…");
+    if (!p || p.demo || !original || busy || jobActive) return;
+    setSeparationError("");
+    setConnectionError("");
+    setBusy("Verificando o servidor de processamento…");
+    let reachedServer = false;
     try {
-      const base = serverBase(),
-        status = await health(base);
+      const base = requestedBase.trim().replace(/\/$/, "");
+      if (base && !/^https?:\/\//.test(base))
+        throw new Error(
+          "Informe a URL completa do servidor, começando com https:// ou http://.",
+        );
+      const status = await health(base);
+      reachedServer = true;
       setConnection(status);
       if (!status.worker_online || !status.separation_available)
-        throw new Error("Conecte um servidor com o worker de separação ativo.");
+        throw new Error(
+          "O servidor respondeu, mas o worker de separação está indisponível. Inicie o worker e tente novamente.",
+        );
+      localStorage.setItem("riffsync-api", base);
+      setApiBase(base);
+      const file = filesRef.current[original.id];
+      if (!file?.size)
+        throw new Error(
+          "O áudio original não está disponível neste projeto. Carregue a música novamente.",
+        );
+      setBusy("Enviando a música para análise…");
       const created = await createJob(
         base,
-        filesRef.current[original.id],
+        file,
         p.filename,
         model,
         transcribe,
       );
       setJob(created);
-      update((current) => ({
-        ...current,
-        jobId: created.id,
-        jobBase: base,
-        jobApplied: false,
-      }));
+      update((current) =>
+        current.id !== p.id
+          ? current
+          : {
+              ...current,
+              jobId: created.id,
+              jobBase: base,
+              jobApplied: false,
+            },
+      );
+      setPanel("none");
     } catch (e) {
-      notify(message(e));
-      setPanel("settings");
+      if (!reachedServer) setConnection(null);
+      setSeparationError(
+        reachedServer
+          ? message(e)
+          : `Não foi possível verificar o servidor de processamento: ${message(e)}`,
+      );
     } finally {
       setBusy("");
     }
@@ -1174,6 +1209,18 @@ export default function App() {
             </div>
           )}
           {jobNotice && !job && <p className="inline-notice">{jobNotice}</p>}
+          {separationError && (
+            <div className="separation-error" role="alert">
+              <strong>Não foi possível iniciar a separação</strong>
+              <p>{separationError}</p>
+              <button
+                className="button secondary compact"
+                onClick={() => setPanel("settings")}
+              >
+                <Settings2 size={15} /> Configurar processamento
+              </button>
+            </div>
+          )}
 
           <section className="mixer-section">
             <div className="section-heading">
@@ -1188,7 +1235,7 @@ export default function App() {
               </div>
               <button
                 className="button ai-button"
-                disabled={!project || project.demo || !!busy || jobActive}
+                disabled={!canSeparate || !!busy || jobActive}
                 onClick={() => {
                   void separate();
                 }}
@@ -1608,10 +1655,14 @@ export default function App() {
                 <div className="modal-eyebrow">
                   <Cloud size={19} /> PROCESSAMENTO DE ÁUDIO
                 </div>
-                <h2>Conecte seu estúdio à IA.</h2>
+                <h2>
+                  {connection?.worker_online && connection.separation_available
+                    ? "IA pronta para separar."
+                    : "Configure o processamento de áudio."}
+                </h2>
                 <p>
-                  A reprodução e a sincronização manual funcionam neste
-                  dispositivo. A separação usa um servidor de processamento.
+                  Escolha as pistas e inicie a separação da música carregada. O
+                  arranjo acompanha o áudio original de cada instrumento.
                 </p>
                 <label className="field-label" htmlFor="api-url">
                   Endereço do servidor
@@ -1621,7 +1672,11 @@ export default function App() {
                     id="api-url"
                     placeholder="https://seu-servidor.com"
                     value={apiBase}
-                    onChange={(e) => setApiBase(e.target.value)}
+                    onChange={(e) => {
+                      setApiBase(e.target.value);
+                      setConnection(null);
+                      setConnectionError("");
+                    }}
                   />
                   <button
                     className="button primary"
@@ -1639,8 +1694,14 @@ export default function App() {
                   </button>
                 </div>
                 <small className="field-help">
-                  Deixe vazio para usar o servidor que hospeda o aplicativo.
+                  Vazio: usar o servidor deste aplicativo. Outra URL: usar um
+                  servidor externo.
                 </small>
+                {connectionError && (
+                  <p className="separation-error" role="alert">
+                    {connectionError}
+                  </p>
+                )}
                 <div className="connection-report">
                   <span
                     className={
@@ -1691,6 +1752,45 @@ export default function App() {
                   As transcrições são editáveis. As pistas de áudio continuam
                   disponíveis quando uma transcrição falha.
                 </p>
+                {separationError && (
+                  <div className="separation-error" role="alert">
+                    <strong>Não foi possível iniciar a separação</strong>
+                    <p>{separationError}</p>
+                  </div>
+                )}
+                <div className="modal-footer">
+                  <button
+                    className="button secondary"
+                    onClick={() => setPanel("none")}
+                  >
+                    Voltar ao estúdio
+                  </button>
+                  <button
+                    className="button primary"
+                    disabled={!canSeparate || !!busy || jobActive || checking}
+                    onClick={() => {
+                      void separate(apiBase);
+                    }}
+                  >
+                    {busy ? (
+                      <LoaderCircle className="spin" size={16} />
+                    ) : (
+                      <Sparkles size={16} />
+                    )}
+                    Separar instrumentos
+                  </button>
+                </div>
+                {!canSeparate && (
+                  <p className="field-help">
+                    Carregue sua música no estúdio para iniciar a separação.
+                  </p>
+                )}
+                {jobActive && (
+                  <p className="field-help">
+                    Já existe uma tarefa em andamento. Acompanhe o progresso no
+                    estúdio.
+                  </p>
+                )}
               </>
             )}
             {panel === "import" && (

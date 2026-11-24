@@ -1216,6 +1216,23 @@ kbd {
   margin-top: 12px;
   color: #d0b484;
 }
+.separation-error {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid #664236;
+  border-radius: 7px;
+  background: #2f211b;
+  color: #e5b79e;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.separation-error p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+.separation-error .button {
+  margin-top: 10px;
+}
 .notation-card {
   border: 1px solid #2b3238;
   background: #181c20;

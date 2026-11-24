@@ -16,6 +16,7 @@ Estúdio web para carregar uma gravação, separar instrumentos e gerar automati
 - Edição visual de cada nota: início, fim, corda, casa ou altura. A grade visual pode ser ajustada por BPM e compasso. A reprodução usa os WAVs separados, preservando o timbre da gravação.
 - Marcação de ataques de bateria, melodia da voz e notas de piano. O andamento, a métrica e as digitações são estimativas editáveis.
 - Separação real com Demucs: modelos `htdemucs` (4 pistas), `htdemucs_ft` (4 pistas, refinado) e `htdemucs_6s` (6 pistas, experimental).
+- Início direto por **Separar com IA** no mixer ou **Separar instrumentos** nas configurações. Com API e worker no mesmo servidor do aplicativo, o endereço pode ficar vazio. Erros de envio permanecem visíveis na tela com a resposta do servidor.
 - Transcrição de notas por stem com Basic Pitch; estimativa de cordas e casas para guitarra e baixo em afinação padrão. Piano mantém eventos de notas no projeto.
 - Estimativa de acordes maiores/menores por chroma, segmentação rítmica e suavização temporal. Trechos sem evidência suficiente não recebem um acorde inventado.
 - Fila SQLite persistente, worker separado da API, progresso por etapa, cancelamento e detecção de worker interrompido.
