@@ -80,15 +80,34 @@ async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6
 def get_job(job_id: str, key=Depends(owner)):
     job = owned(job_id, key)
     # Existing failed tasks gain diagnostics without uploading the song again.
-    if job["status"] == "failed" and not job.get("error_details"):
-        logs = sorted((config.DATA / job_id).glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
-        if logs:
-            with logs[0].open("rb") as stream:
-                stream.seek(max(0, logs[0].stat().st_size - 16000))
-                detail = stream.read().decode("utf-8", errors="replace")
-            code, error, excerpt = summarize_failure("indisponível", detail)
+    if job['status'] == 'failed':
+        detail = job.get('error_details') or ''
+        legacy_sigterm = 'código -15' in (job.get('error') or '')
+        returncode = -15 if legacy_sigterm else job.get('exit_code', 'indisponível')
+        if not detail:
+            logs = sorted((config.DATA / job_id).glob('*.log'), key=lambda p: p.stat().st_mtime, reverse=True)
+            if logs:
+                with logs[0].open('rb') as stream:
+                    stream.seek(max(0, logs[0].stat().st_size - 16000))
+                    detail = stream.read().decode('utf-8', errors='replace')
+        if legacy_sigterm or (detail and not job.get('error_details')):
+            code, error, excerpt = summarize_failure(returncode, detail)
             job.update(error=error, error_code=code, error_details=excerpt)
     return db.public(job)
+
+@app.post('/api/jobs/{job_id}/retry', status_code=202)
+def retry_job(job_id: str, key=Depends(owner)):
+    job = owned(job_id, key)
+    if job['status'] == 'cancelled':
+        raise HTTPException(409, 'Essa tarefa foi cancelada. Envie a música novamente para criar outra tarefa.')
+    if job['status'] == 'completed':
+        raise HTTPException(409, 'Essa tarefa já foi concluída.')
+    if not list((config.DATA / job_id).glob('input.*')):
+        raise HTTPException(409, 'O arquivo original não está mais disponível no servidor. Carregue a música novamente.')
+    try:
+        return db.public(db.requeue(job_id, manual=True))
+    except ValueError as error:
+        raise HTTPException(429, str(error)) from error
 
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, key=Depends(owner)):

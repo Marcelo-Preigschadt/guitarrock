@@ -7,6 +7,8 @@ def summarize_failure(returncode, detail):
     lines = [line for line in text.splitlines() if line.strip() and not re.search(r"\d+%\|", line)]
     excerpt = "\n".join(lines[-16:])[-3500:]
     lower = excerpt.lower()
+    if returncode in (-15, 143):
+        return "terminated", "O processo recebeu SIGTERM (sinal 15) e foi interrompido externamente. O arquivo enviado foi preservado para retomar.", "Encerramento por SIGTERM (15).\n" + excerpt
     if returncode in (-9, 137) or any(p in lower for p in ("out of memory", "cannot allocate memory", "defaultcpuallocator", "std::bad_alloc")):
         return "memory", "O separador foi encerrado por falta de memória ou por um limite do servidor.", excerpt
     if any(p in lower for p in ("http error", "urlopen error", "certificate_verify_failed", "name resolution", "connection refused", "connection reset", "timed out")):

@@ -67,13 +67,49 @@ class ServiceTests(unittest.TestCase):
         self.job(); self.job()
         with self.assertRaises(ValueError): self.job()
 
-    def test_stale_worker_recovers_job_as_failed(self):
+    def test_stale_worker_requeues_job(self):
         job = self.job(); db.update(job['id'], status='queued'); db.claim('dead-worker')
         payload = db.get(job['id']); payload['updated'] = time.time() - 120
         import json
         with db.connect() as c: c.execute('UPDATE jobs SET payload=? WHERE id=?', (json.dumps(payload), job['id']))
         db.recover()
-        self.assertEqual(db.get(job['id'])['status'], 'failed')
+        self.assertEqual(db.get(job['id'])['status'], 'queued')
+        self.assertEqual(db.get(job['id'])['recovery_count'], 1)
+
+    def test_repeated_worker_crashes_are_bounded_and_cancellation_is_preserved(self):
+        job = self.job(); db.update(job['id'], status='queued')
+        for expected in ('queued', 'queued', 'failed'):
+            db.claim('dead-worker')
+            self.assertEqual(db.requeue(job['id'], crashed=True)['status'], expected)
+        db.update(job['id'], status='cancelled')
+        self.assertEqual(db.requeue(job['id'], manual=True)['status'], 'cancelled')
+        self.assertEqual(db.requeue(job['id'], crashed=True)['status'], 'cancelled')
+
+    def test_retry_reuses_upload_and_same_job_but_requires_owner(self):
+        job = self.job(); directory = config.DATA/job['id']; directory.mkdir()
+        (directory/'input.mp3').write_bytes(b'original-upload')
+        db.update(job['id'], status='failed', error='interrupted', signal_retries=1)
+        url = f"/api/jobs/{job['id']}/retry"
+        self.assertEqual(self.client.post(url, headers={'X-Workspace-Key':'b'*64}).status_code, 404)
+        response = self.client.post(url, headers=HEADERS)
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()['id'], job['id'])
+        self.assertEqual(response.json()['status'], 'queued')
+        self.assertEqual(db.get(job['id'])['signal_retries'], 0)
+        self.assertEqual((directory/'input.mp3').read_bytes(), b'original-upload')
+        self.assertEqual(self.client.post(url, headers=HEADERS).json()['status'], 'queued')
+
+    def test_retry_rejects_missing_upload_cancelled_completed_and_full_queue(self):
+        job = self.job(); db.update(job['id'], status='failed')
+        url = f"/api/jobs/{job['id']}/retry"
+        self.assertEqual(self.client.post(url, headers=HEADERS).status_code, 409)
+        directory = config.DATA/job['id']; directory.mkdir(); (directory/'input.mp3').write_bytes(b'audio')
+        self.job(); self.job()
+        self.assertEqual(self.client.post(url, headers=HEADERS).status_code, 429)
+        db.update(job['id'], status='completed')
+        self.assertEqual(self.client.post(url, headers=HEADERS).status_code, 409)
+        db.update(job['id'], status='cancelled')
+        self.assertEqual(self.client.post(url, headers=HEADERS).status_code, 409)
 
     def test_upload_limits_and_success(self):
         with patch('riffsync.api.importlib.util.find_spec', return_value=object()), patch('riffsync.api.db.worker_online', return_value=True):
@@ -98,6 +134,15 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(response.json()['error_code'], 'memory')
         self.assertIn('out of memory', response.json()['error_details'])
         self.assertEqual(self.client.get(f"/api/jobs/{job['id']}", headers={'X-Workspace-Key':'b'*64}).status_code, 404)
+
+    def test_legacy_sigterm_diagnostic_preserves_available_log(self):
+        job = self.job(); directory = config.DATA/job['id']; directory.mkdir()
+        (directory/'separation.log').write_text('Separating track source.wav')
+        db.update(job['id'], status='failed', error='O separador falhou (código -15).')
+        response = self.client.get(f"/api/jobs/{job['id']}", headers=HEADERS).json()
+        self.assertEqual(response['error_code'], 'terminated')
+        self.assertIn('SIGTERM', response['error'])
+        self.assertIn('Separating track', response['error_details'])
 
     def test_fingering_never_assigns_two_simultaneous_notes_to_one_string(self):
         notes = [{'start':0, 'end':1, 'midi':m, 'velocity':0.8} for m in (40, 47, 52, 55, 59, 64)]

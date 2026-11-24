@@ -63,6 +63,8 @@ export const getJob = (base: string, id: string) =>
   request<Job>(base, `/jobs/${id}`);
 export const cancelJob = (base: string, id: string) =>
   request<Job>(base, `/jobs/${id}/cancel`, { method: "POST" });
+export const retryJob = (base: string, id: string) =>
+  request<Job>(base, `/jobs/${id}/retry`, { method: "POST" });
 export async function artifact(base: string, id: string, file: string) {
   const response = await fetch(
     `${base.replace(/\/$/, "")}/api/jobs/${id}/files/${encodeURIComponent(file)}`,

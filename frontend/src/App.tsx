@@ -36,6 +36,7 @@ import { createDemo } from "./demo";
 import {
   artifact,
   cancelJob,
+  retryJob,
   createJob,
   getJob,
   health,
@@ -85,6 +86,7 @@ export default function App() {
   const [autoFollow, setAutoFollow] = useState(true);
   const [job, setJob] = useState<Job | null>(null);
   const [jobNotice, setJobNotice] = useState("");
+  const [jobRevision, setJobRevision] = useState(0);
   const [apiBase, setApiBase] = useState(serverBase);
   const [connection, setConnection] = useState<Health | null>(null);
   const [checking, setChecking] = useState(false);
@@ -474,7 +476,13 @@ export default function App() {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [project?.jobId, project?.jobApplied, project?.jobBase, applyResult]);
+  }, [
+    project?.jobId,
+    project?.jobApplied,
+    project?.jobBase,
+    jobRevision,
+    applyResult,
+  ]);
 
   const connect = async () => {
     setChecking(true);
@@ -1114,6 +1122,25 @@ export default function App() {
                         Copiar diagnóstico
                       </button>
                     </details>
+                  )}
+                  {job.status === "failed" && (
+                    <button
+                      className="button secondary compact job-retry"
+                      disabled={!!busy}
+                      onClick={() => {
+                        setBusy("Retomando processamento…");
+                        void retryJob(project!.jobBase || "", job.id)
+                          .then((next) => {
+                            setJob(next);
+                            setJobNotice("");
+                            setJobRevision((value) => value + 1);
+                          })
+                          .catch((e) => notify(message(e)))
+                          .finally(() => setBusy(""));
+                      }}
+                    >
+                      Retomar processamento
+                    </button>
                   )}
                 </div>
               </div>

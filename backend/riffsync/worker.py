@@ -1,4 +1,5 @@
 import importlib.util
+import fcntl
 import json
 import logging
 import os
@@ -21,47 +22,88 @@ stop = threading.Event()
 class Cancelled(Exception):
     pass
 
+class WorkerStopping(Exception):
+    pass
+
+
+def check_job(job_id):
+    job = db.get(job_id)
+    if not job or job['status'] == 'cancelled':
+        raise Cancelled()
+    if stop.is_set():
+        raise WorkerStopping()
+    return job
+
+
+def acquire_worker_lock():
+    config.DATA.mkdir(parents=True, exist_ok=True)
+    stream = (config.DATA / 'worker.lock').open('a+')
+    try:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        stream.close()
+        return None
+    stream.seek(0); stream.truncate(); stream.write(str(os.getpid())); stream.flush()
+    return stream
+
 class ProcessingFailure(RuntimeError):
     def __init__(self, returncode, log_path):
         with log_path.open("rb") as stream:
             stream.seek(max(0, log_path.stat().st_size - 16000))
             detail = stream.read().decode("utf-8", errors="replace")
+        self.returncode = returncode
         self.category, message, self.details = summarize_failure(returncode, detail)
+        self.details = f'Código de saída: {returncode}\n' + self.details
         super().__init__(message)
 
 def command(args, job_id, log_path, progress=False):
-    started = time.monotonic()
-    with log_path.open("wb") as output:
-        env = dict(os.environ)
-        env.setdefault("OMP_NUM_THREADS", "2")
-        env.setdefault("MKL_NUM_THREADS", "2")
-        env.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-        process = subprocess.Popen(args, stdout=output, stderr=output, start_new_session=True, env=env)
-        try:
-            while process.poll() is None:
-                job = db.get(job_id)
-                if stop.is_set() or not job or job["status"] == "cancelled":
-                    raise Cancelled()
-                if time.monotonic() - started > config.JOB_TIMEOUT:
-                    raise RuntimeError("O processamento atingiu o limite de tempo do servidor.")
-                if progress:
-                    with log_path.open("rb") as reader:
-                        reader.seek(max(0, log_path.stat().st_size - 4096))
-                        percentages = re.findall(rb"(\d{1,3})%\|", reader.read())
-                    if percentages:
-                        value = min(100, int(percentages[-1]))
-                        db.update(job_id, progress=10 + int(value * 0.6), stage="Separando os instrumentos")
-                stop.wait(1)
-            if process.returncode:
-                log.error("Command failed for job %s; see %s", job_id, log_path)
+    started, append = time.monotonic(), False
+    while True:
+        check_job(job_id)
+        with log_path.open('ab' if append else 'wb') as output:
+            env = dict(os.environ)
+            env.setdefault('OMP_NUM_THREADS', '2')
+            env.setdefault('MKL_NUM_THREADS', '2')
+            env.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
+            process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+                                       start_new_session=True, close_fds=True, env=env)
+            log.info('Job %s: started child %s (worker %s)', job_id, process.pid, os.getpid())
+            try:
+                while process.poll() is None:
+                    check_job(job_id)
+                    if time.monotonic() - started > config.JOB_TIMEOUT:
+                        raise RuntimeError('O processamento atingiu o limite de tempo do servidor.')
+                    if progress:
+                        with log_path.open('rb') as reader:
+                            reader.seek(max(0, log_path.stat().st_size - 4096))
+                            percentages = re.findall(rb'(\d{1,3})%\|', reader.read())
+                        if percentages:
+                            value = min(100, int(percentages[-1]))
+                            db.update(job_id, progress=10 + int(value * .6), stage='Separando os instrumentos')
+                    stop.wait(.25)
+                # Cancellation/shutdown also wins if the child exited between polls.
+                job = check_job(job_id)
+                if process.returncode == 0:
+                    return
+                log.warning('Job %s: child %s exited with %s; worker stopping=%s', job_id, process.pid, process.returncode, stop.is_set())
+                if process.returncode == -signal.SIGTERM and int(job.get('signal_retries', 0)) < 1:
+                    db.update(job_id, signal_retries=1, stage='Separador interrompido; repetindo a etapa uma vez',
+                              progress=10 if progress else job.get('progress', 0))
+                    output.write(b'\n[RiffSync] SIGTERM externo: repetindo uma vez com o worker ativo.\n'); output.flush()
+                    append = True
+                    stop.wait(.25)
+                    continue
                 raise ProcessingFailure(process.returncode, log_path)
-        finally:
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL); process.wait()
+            finally:
+                if process.poll() is None:
+                    try: os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError: pass
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        try: os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError: pass
+                        process.wait()
 
 def duration(file):
     result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(file)], capture_output=True, text=True, timeout=30)
@@ -121,7 +163,7 @@ def process(job):
         try:
             command([sys.executable, "-m", "riffsync.transcribe", str(output)], job_id, directory / "transcription.log")
             transcription = json.loads((output / "transcription.json").read_text(encoding="utf-8"))
-        except Cancelled:
+        except (Cancelled, WorkerStopping):
             raise
         except Exception:
             transcription["warnings"].append("A transcrição automática falhou. As pistas estão prontas; importe seu texto para sincronizar.")
@@ -136,6 +178,10 @@ def main():
     db.init()
     if not importlib.util.find_spec("demucs") or not shutil.which("ffmpeg"):
         raise SystemExit("Instale requirements-ai.txt e FFmpeg antes de iniciar o worker.")
+    worker_lock = acquire_worker_lock()
+    if worker_lock is None:
+        log.info('A worker is already active for this data directory; duplicate startup ignored.')
+        return
     worker_id = uuid.uuid4().hex
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
@@ -154,14 +200,18 @@ def main():
             stop.wait(2); continue
         try:
             process(job)
+        except WorkerStopping:
+            db.requeue(job['id'])
+            log.info('Job %s preserved in queue for worker restart', job['id'])
         except Cancelled:
             db.update(job["id"], status="cancelled", stage="Processamento interrompido")
         except Exception as error:
             log.exception("Job %s failed", job["id"])
             db.update(job["id"], status="failed", stage="Não foi possível concluir", error=str(error)[:350],
-                      error_code=getattr(error, "category", "processing"), error_details=getattr(error, "details", ""))
+                      error_code=getattr(error, "category", "processing"), error_details=getattr(error, "details", ""), exit_code=getattr(error, 'returncode', None))
     with db.connect() as c:
         c.execute("DELETE FROM workers WHERE id=?", (worker_id,))
+    worker_lock.close()
 
 if __name__ == "__main__":
     main()

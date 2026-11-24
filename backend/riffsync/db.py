@@ -80,6 +80,39 @@ def claim(worker_id):
         c.execute("UPDATE jobs SET status='running', updated=?, payload=? WHERE id=?", (payload["updated"], json.dumps(payload), row["id"]))
         return payload
 
+def requeue(job_id, *, manual=False, crashed=False):
+    """Preserve the upload while atomically separating retries from cancellation."""
+    with connect() as c:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT owner,payload FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if not row:
+            return None
+        payload = json.loads(row['payload'])
+        if payload['status'] in ('cancelled', 'completed'):
+            return payload
+        if manual and payload['status'] != 'failed':
+            return payload
+        if not manual and payload['status'] != 'running':
+            return payload
+        if manual:
+            count = c.execute("SELECT COUNT(*) FROM jobs WHERE owner=? AND status IN ('uploading','queued','running')", (row['owner'],)).fetchone()[0]
+            total = c.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('uploading','queued','running')").fetchone()[0]
+            if count >= 2 or total >= 32:
+                raise ValueError('A fila está cheia. Aguarde uma tarefa terminar antes de retomar.')
+            payload.update(signal_retries=0, recovery_count=0)
+        if crashed:
+            payload['recovery_count'] = int(payload.get('recovery_count', 0)) + 1
+        if crashed and payload['recovery_count'] > 2:
+            payload.update(status='failed', stage='Worker interrompido repetidamente',
+                           error='O servidor interrompeu o worker repetidamente. O arquivo foi preservado; retome quando o servidor estiver estável.', error_code='worker_interrupted')
+        else:
+            payload.update(status='queued', stage='Retomando o arquivo enviado' if manual else 'Aguardando o worker reiniciar', progress=0,
+                           error=None, error_code=None, error_details='', exit_code=None, result=None)
+        payload.pop('worker', None)
+        payload['updated'] = time.time()
+        c.execute('UPDATE jobs SET status=?,updated=?,payload=? WHERE id=?', (payload['status'], payload['updated'], json.dumps(payload), job_id))
+    return payload
+
 def recover():
     with connect() as c:
         rows = c.execute("SELECT id,payload FROM jobs WHERE status='running'").fetchall()
@@ -87,7 +120,7 @@ def recover():
     for row in rows:
         p = json.loads(row["payload"])
         if p.get("worker") not in active and p["updated"] < time.time() - 45:
-            update(row["id"], status="failed", stage="Processamento interrompido", error="O worker foi interrompido. Envie novamente a música para reprocessar.")
+            requeue(row['id'], crashed=True)
 
 def public(payload):
     return {k: v for k, v in payload.items() if k not in {"worker", "model", "transcribe", "filename"}}

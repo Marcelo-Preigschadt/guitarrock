@@ -19,6 +19,7 @@ Estúdio web para carregar uma gravação, separar instrumentos e gerar automati
 - Transcrição de notas por stem com Basic Pitch; estimativa de cordas e casas para guitarra e baixo em afinação padrão. Piano mantém eventos de notas no projeto.
 - Estimativa de acordes maiores/menores por chroma, segmentação rítmica e suavização temporal. Trechos sem evidência suficiente não recebem um acorde inventado.
 - Fila SQLite persistente, worker separado da API, progresso por etapa, cancelamento e detecção de worker interrompido.
+- Uma retentativa automática se um subprocesso receber SIGTERM com o worker ainda ativo. Reiniciar o worker recoloca a tarefa na fila; cancelamentos explícitos são preservados. O botão **Retomar processamento** reutiliza o upload de tarefas que falharam.
 - Separação com janelas de 4 segundos por padrão, retentativa automática com janelas menores quando há falta de memória e diagnóstico copiável na tela para falhas de memória, rede/modelos, dependências e disco. As janelas não limitam a duração da música.
 - Transcrição ONNX em blocos de até 32 segundos com contexto e fusão de eventos nas fronteiras, para limitar o uso de memória.
 - Acesso às tarefas e arquivos restrito à chave aleatória da sessão do navegador.
@@ -77,7 +78,9 @@ Na raiz do repositório:
 git pull --ff-only && python3 scripts/restart.py
 ```
 
-Esse comando recompila a interface, encerra somente os processos RiffSync deste checkout, inicia API e worker e verifica o endpoint de saúde. Os uploads e projetos do diretório `data` são preservados. Após a confirmação, recarregue a aba do aplicativo.
+Esse comando recompila a interface, encerra somente os processos RiffSync deste checkout, inicia API e worker e verifica o endpoint de saúde. API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Após a confirmação, recarregue a aba do aplicativo.
+
+Para uma tarefa que já falhou, clique em **Retomar processamento**: o servidor reutiliza o arquivo enviado e reinicia o processamento, sem novo upload. Não há checkpoint dentro do modelo. Uma queda abrupta do worker permite até duas recuperações automáticas; interrupções repetidas exigem retomada manual. O código `−15` identifica SIGTERM, mas não informa quem enviou o sinal. Encerrar o Codespace também encerra seus processos.
 
 Se uma tarefa falhar, abra **Ver diagnóstico do processamento → Copiar diagnóstico**. Tarefas antigas que falharam também exibem os logs quando ainda estão disponíveis no servidor. Não é necessário copiar o terminal.
 
@@ -107,6 +110,7 @@ Documentação interativa em `/docs`.
 | POST | `/api/jobs` | Multipart `file`, `model`, `transcribe` |
 | GET | `/api/jobs/{id}` | Estado, progresso, avisos e resultado |
 | POST | `/api/jobs/{id}/cancel` | Interromper processamento |
+| POST | `/api/jobs/{id}/retry` | Recolocar tarefa com falha na fila, reutilizando o upload |
 | GET | `/api/jobs/{id}/files/{filename}` | Baixar uma pista finalizada |
 | DELETE | `/api/jobs/{id}` | Remover tarefa finalizada com sucesso ou falha |
 
