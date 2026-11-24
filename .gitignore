@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+*.tsbuildinfo
+.DS_Store
+frontend/public/alphatab/
+*.egg-info/

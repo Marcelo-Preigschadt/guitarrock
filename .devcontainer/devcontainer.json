@@ -1,0 +1,18 @@
+{
+  "name": "RiffSync Studio",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "features": { "ghcr.io/devcontainers/features/node:1": { "version": "22" } },
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "RiffSync Studio",
+      "onAutoForward": "openBrowser",
+      "visibility": "private"
+    }
+  },
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y ffmpeg libsndfile1 && bash scripts/setup.sh",
+  "postStartCommand": "bash scripts/start.sh --background",
+  "customizations": {
+    "vscode": { "extensions": ["ms-python.python", "dbaeumer.vscode-eslint"] }
+  }
+}

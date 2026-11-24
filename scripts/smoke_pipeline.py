@@ -1,0 +1,59 @@
+"""Real-model smoke test. Downloads Demucs weights on first run; CPU is supported.
+
+Run from the repository root: .venv/bin/python scripts/smoke_pipeline.py
+"""
+import hashlib
+import json
+import math
+import os
+import struct
+import tempfile
+import wave
+from pathlib import Path
+
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("MKL_NUM_THREADS", "2")
+
+from fastapi.testclient import TestClient
+from riffsync import config, db
+from riffsync.api import app
+from riffsync.worker import process
+
+def fixture(path):
+    sr, seconds = 22050, 5
+    with wave.open(str(path), "wb") as output:
+        output.setparams((1, 2, sr, 0, "NONE", "not compressed"))
+        data = bytearray()
+        for index in range(sr * seconds):
+            t = index / sr
+            envelope = math.exp(-((t % 0.5) * 5))
+            notes = sum(math.sin(2 * math.pi * f * t) for f in (164.81, 196, 246.94)) / 3
+            bass = math.sin(2 * math.pi * 82.41 * t)
+            kick = math.sin(2 * math.pi * 55 * t) * math.exp(-((t % 1) * 28))
+            value = 0.2 * notes * envelope + 0.12 * bass + 0.15 * kick
+            data.extend(struct.pack('<h', round(max(-1, min(1, value)) * 32767)))
+        output.writeframes(data)
+
+def main():
+    with tempfile.TemporaryDirectory(prefix="riffsync-smoke-") as temp:
+        config.DATA = Path(temp) / "data"
+        source = Path(temp) / "fixture.wav"; fixture(source)
+        with TestClient(app) as client:
+            db.heartbeat("smoke-test")
+            response = client.post('/api/jobs', headers={'X-Workspace-Key':'smoke_' + 'a'*60},
+                                   files={'file':('fixture.wav', source.read_bytes(), 'audio/wav')},
+                                   data={'model':'htdemucs_6s','transcribe':'true'})
+            assert response.status_code == 202, response.text
+            job = db.claim('smoke-test')
+            process(job)
+            result = client.get(f"/api/jobs/{job['id']}", headers={'X-Workspace-Key':'smoke_' + 'a'*60}).json()
+            assert result['status'] == 'completed', result
+            assert len(result['result']['tracks']) == 6, result
+            for track in result['result']['tracks']:
+                audio = client.get(f"/api/jobs/{job['id']}/files/{track['file']}", headers={'X-Workspace-Key':'smoke_'+'a'*60})
+                assert audio.status_code == 200 and len(audio.content) > 1000
+            print(json.dumps({'status':result['status'], 'tracks':len(result['result']['tracks']),
+                              'notes':{t['kind']:len(t.get('notes',[])) for t in result['result']['tracks']},
+                              'chords':len(result['result']['chords']), 'warnings':result['warnings']}, ensure_ascii=False))
+
+if __name__ == '__main__': main()
