@@ -1,8 +1,10 @@
 """Run in a child process, so cancellation also stops model inference."""
 import json
 import sys
+import tempfile
 from pathlib import Path
 from .fingering import assign_strings
+from .timing import measure_grid, merge_chunk_notes
 
 def estimate_chords(path):
     import librosa
@@ -31,7 +33,7 @@ def estimate_chords(path):
         observations.append(templates @ vector)
         energy.append(float(np.mean(rms[left:right])))
     if not observations:
-        return bpm, []
+        return bpm, [], measure_grid(duration, bpm, beats.tolist())
     scores = np.array(observations)
     dp, back = scores.copy(), np.zeros(scores.shape, dtype=int)
     transitions = np.full((24, 24), -0.16); np.fill_diagonal(transitions, 0)
@@ -50,28 +52,55 @@ def estimate_chords(path):
             chords[-1]["end"] = round(float(bounds[i + 1]), 3)
         else:
             chords.append({"start": round(float(bounds[i]), 3), "end": round(float(bounds[i + 1]), 3), "label": label})
-    return round(bpm, 2) if bpm and 30 <= bpm <= 300 else None, chords
+    valid_bpm = round(bpm, 2) if bpm and 30 <= bpm <= 300 else None
+    return valid_bpm, chords, measure_grid(duration, valid_bpm, beats.tolist())
+
+
+def transcribe_track(file, model):
+    """Decode note events directly into JSON, with bounded inference windows."""
+    import soundfile as sf
+    from basic_pitch.inference import run_inference
+    from basic_pitch.note_creation import output_to_notes_polyphonic, model_frames_to_time
+    events = []
+    with sf.SoundFile(str(file)) as stream, tempfile.TemporaryDirectory(prefix="notes-", dir=file.parent) as temp:
+        length, sr = len(stream) / stream.samplerate, stream.samplerate
+        offset, chunk = 0.0, 0
+        while offset < length:
+            left, right = max(0.0, offset - 1), min(length, offset + 31)
+            stream.seek(int(left * sr))
+            audio = stream.read(int((right - left) * sr), dtype="float32")
+            path = Path(temp) / "window.wav"; sf.write(str(path), audio, sr)
+            output = run_inference(str(path), model)
+            decoded = output_to_notes_polyphonic(output["note"], output["onset"], onset_thresh=.5, frame_thresh=.3,
+                                                min_note_len=6, infer_onsets=True, max_freq=None, min_freq=None)
+            times = model_frames_to_time(len(output["note"]) + 1)
+            for start_frame, end_frame, pitch, amplitude in decoded:
+                start, end = left + float(times[start_frame]), min(length, left + float(times[end_frame]))
+                if end > offset and start < offset + 30 and end - start >= .07 and amplitude >= .15:
+                    events.append({"start": round(max(0, start), 4), "end": round(end, 4), "pitch": int(pitch), "velocity": round(float(amplitude), 3), "chunk": chunk})
+            offset += 30; chunk += 1
+    return merge_chunk_notes(events)
 
 def run(directory):
     import importlib.util
     output = Path(directory)
-    result = {"bpm": None, "chords": [], "notes": {}, "warnings": []}
+    result = {"bpm": None, "chords": [], "notes": {}, "timing": None, "warnings": []}
     try:
-        result["bpm"], result["chords"] = estimate_chords(output.parent / "source.wav")
+        result["bpm"], result["chords"], result["timing"] = estimate_chords(output.parent / "source.wav")
     except Exception as error:
         result["warnings"].append(f"Não foi possível estimar as cifras ({type(error).__name__}). Importe seu texto para sincronizar.")
     if importlib.util.find_spec("basic_pitch"):
         try:
-            from basic_pitch.inference import predict
-            for kind in ("guitar", "bass", "piano"):
+            from basic_pitch import build_icassp_2022_model_path, FilenameSuffix
+            from basic_pitch.inference import Model
+            model = Model(build_icassp_2022_model_path(FilenameSuffix.onnx))
+            for kind in ("guitar", "bass", "piano", "vocals"):
                 file = output / f"{kind}.wav"
                 if not file.exists():
                     continue
                 try:
-                    _, midi, events = predict(str(file))
-                    midi.write(str(output / f"{kind}.mid"))
-                    notes = [{"start": round(float(e[0]), 4), "end": round(float(e[1]), 4), "midi": int(e[2]), "velocity": round(float(e[3]), 3)}
-                             for e in events if e[1] - e[0] >= 0.07 and float(e[3]) >= 0.15]
+                    print(f"Transcrevendo eventos de {kind}", flush=True)
+                    notes = transcribe_track(file, model)
                     result["notes"][kind] = assign_strings(notes, kind) if kind in ("guitar", "bass") else notes
                 except Exception as error:
                     result["warnings"].append(f"A transcrição de {kind} falhou ({type(error).__name__}). O áudio separado continua disponível.")
@@ -79,6 +108,15 @@ def run(directory):
             result["warnings"].append(f"O modelo de notas não carregou ({type(error).__name__}). Use a importação manual.")
     else:
         result["warnings"].append("Basic Pitch não está instalado. Importe cifras ou tablaturas para sincronizar manualmente.")
+    try:
+        import librosa
+        drum_file = output / "drums.wav"
+        if drum_file.exists():
+            audio, sr = librosa.load(drum_file, sr=22050)
+            onsets = librosa.onset.onset_detect(y=audio, sr=sr, units="time", backtrack=False)
+            result["notes"]["drums"] = [{"start": round(float(t), 4), "end": round(min(len(audio) / sr, float(t) + .1), 4), "pitch": 0, "velocity": .8} for t in onsets]
+    except Exception:
+        result["warnings"].append("A marcação dos ataques de bateria não foi concluída.")
     (output / "transcription.json").write_text(json.dumps(result), encoding="utf-8")
 
 if __name__ == "__main__":

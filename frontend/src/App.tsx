@@ -1,11 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   AudioLines,
@@ -20,7 +13,6 @@ import {
   Guitar,
   Headphones,
   Keyboard,
-  ListMusic,
   LoaderCircle,
   Repeat2 as Loop,
   Music2,
@@ -64,8 +56,8 @@ import { makeTrack, PALETTE } from "./types";
 import type { Cue, Job, Project, Session, Track } from "./types";
 import { Timeline } from "./components/Timeline";
 import { TrackRow } from "./components/TrackRow";
-import { TabView } from "./components/TabView";
-const ScoreView = lazy(() => import("./components/ScoreView"));
+import { ArrangementView } from "./components/ArrangementView";
+import { measureGrid, normalizeNote } from "./arrangement";
 
 type Panel = "none" | "settings" | "import" | "projects" | "help";
 
@@ -82,7 +74,7 @@ export default function App() {
   const [busy, setBusy] = useState("");
   const [saved, setSaved] = useState(false);
   const [panel, setPanel] = useState<Panel>("none");
-  const [tab, setTab] = useState<"text" | "tab" | "score">("text");
+  const [tab, setTab] = useState<"text" | "arrangement">("arrangement");
   const [editing, setEditing] = useState(false);
   const [selectedCue, setSelectedCue] = useState("");
   const [text, setText] = useState("");
@@ -104,7 +96,6 @@ export default function App() {
   const audioInput = useRef<HTMLInputElement>(null);
   const textInput = useRef<HTMLInputElement>(null);
   const projectInput = useRef<HTMLInputElement>(null);
-  const scoreInput = useRef<HTMLInputElement>(null);
   const projectRef = useRef(project);
   projectRef.current = project;
   const tracksRef = useRef(project?.tracks || []);
@@ -219,14 +210,21 @@ export default function App() {
       setFiles(session.files);
       setScore(session.score);
       setWaveforms(waves);
-      setProject({ ...session.project, duration: engine.current.duration });
+      setProject({
+        ...session.project,
+        duration: engine.current.duration,
+        tracks: session.project.tracks.map((t) => ({
+          ...t,
+          notes: t.notes?.map(normalizeNote),
+        })),
+      });
       setSelectedTrack(
         session.project.tracks.find((t) => t.kind === "guitar")?.id ||
           session.project.tracks[0]?.id ||
           "",
       );
       setSelectedCue(session.project.cues[0]?.id || "");
-      setTab("text");
+      setTab("arrangement");
       setPanel("none");
       setEditing(false);
     } catch (e) {
@@ -384,7 +382,7 @@ export default function App() {
             ...makeTrack(result.kind, id),
             name: result.name,
             volume: 1,
-            notes: result.notes,
+            notes: result.notes?.map(normalizeNote),
             filename: result.file,
           });
         }
@@ -409,7 +407,14 @@ export default function App() {
             tracks: [...tracks, ...originals],
             jobApplied: true,
             bpm: resultJob.result!.bpm,
-            cues: current.cues.length ? current.cues : aiCues,
+            timing: resultJob.result!.timing,
+            cues: current.cues.some(
+              (c) => c.source === "manual" && c.barIndex === undefined,
+            )
+              ? current.cues.filter(
+                  (c) => c.source === "manual" && c.barIndex === undefined,
+                )
+              : aiCues,
           };
         });
         setFiles(newFiles);
@@ -420,7 +425,11 @@ export default function App() {
         setSelectedTrack(
           tracks.find((t) => t.kind === "guitar")?.id || tracks[0].id,
         );
-        notify("Pistas prontas. Escolha o instrumento que quer tocar.");
+        setTab("arrangement");
+        setEditing(false);
+        notify(
+          "Pistas e arranjo prontos. Escolha o instrumento que quer tocar.",
+        );
       } catch (e) {
         setJobNotice(
           "As pistas estão prontas no servidor, mas o download falhou. Reabra esta sessão para tentar novamente.",
@@ -545,36 +554,6 @@ export default function App() {
       "Texto importado. Selecione um trecho e marque o momento em que ele começa.",
     );
   };
-  const loadScore = async (file: File) => {
-    if (!project) {
-      notify("Carregue uma música antes de importar a partitura.");
-      return;
-    }
-    if (file.size > 20 * 1024 * 1024) {
-      notify("A partitura deve ter até 20 MB.");
-      return;
-    }
-    setScore(file);
-    update((p) => ({
-      ...p,
-      scoreName: file.name,
-      cues: p.cues.filter((c) => c.barIndex === undefined),
-    }));
-    setTab("score");
-  };
-  const scoreBars = useCallback((count: number) => {
-    setProject((p) => {
-      if (!p || p.cues.some((c) => c.barIndex !== undefined)) return p;
-      const cues = Array.from({ length: Math.min(count, 2000) }, (_, i) => ({
-        id: crypto.randomUUID(),
-        text: `Compasso ${i + 1}`,
-        start: null,
-        barIndex: i,
-        source: "manual" as const,
-      }));
-      return { ...p, cues: [...p.cues, ...cues], updated: Date.now() };
-    });
-  }, []);
   const newCue = () => {
     const cue: Cue = {
       id: crypto.randomUUID(),
@@ -655,9 +634,7 @@ export default function App() {
       project?.tracks.find((t) => t.kind === "original")?.id || selectedTrack
     ] || [];
   const visibleCues =
-    project?.cues.filter((c) =>
-      tab === "score" ? c.barIndex !== undefined : c.barIndex === undefined,
-    ) || [];
+    project?.cues.filter((c) => c.barIndex === undefined) || [];
 
   return (
     <div className="app-shell">
@@ -702,17 +679,6 @@ export default function App() {
           e.target.value = "";
         }}
       />
-      <input
-        ref={scoreInput}
-        type="file"
-        accept=".gp,.gp3,.gp4,.gp5,.gpx,.xml,.musicxml,.mxl"
-        className="sr-only"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void loadScore(f);
-          e.target.value = "";
-        }}
-      />
 
       <aside className="sidebar">
         <a
@@ -730,7 +696,7 @@ export default function App() {
           </span>
         </a>
         <div className="workspace-label">
-          SEU ESTÚDIO <span>v0.1</span>
+          SEU ESTÚDIO <span>v0.2</span>
         </div>
         <nav aria-label="Navegação principal">
           <button className="nav-item active" onClick={() => setPanel("none")}>
@@ -1124,6 +1090,31 @@ export default function App() {
                         ? "Você pode continuar editando e sincronizando enquanto a IA trabalha."
                         : job.warnings.join(" "))}
                   </p>
+                  {job.error_details && (
+                    <details className="job-diagnostics">
+                      <summary>Ver diagnóstico do processamento</summary>
+                      <textarea
+                        aria-label="Diagnóstico do processamento"
+                        readOnly
+                        value={job.error_details}
+                      />
+                      <button
+                        className="button secondary compact"
+                        onClick={() => {
+                          void navigator.clipboard
+                            .writeText(job.error_details || "")
+                            .then(() => notify("Diagnóstico copiado."))
+                            .catch(() =>
+                              notify(
+                                "Selecione o texto do diagnóstico para copiar.",
+                              ),
+                            );
+                        }}
+                      >
+                        Copiar diagnóstico
+                      </button>
+                    </details>
+                  )}
                 </div>
               </div>
               {jobActive ? (
@@ -1191,7 +1182,7 @@ export default function App() {
                     onSelect={() => {
                       setSelectedTrack(track.id);
                       if (track.kind === "guitar" || track.kind === "bass")
-                        setTab("tab");
+                        setTab("arrangement");
                     }}
                     onChange={(changes) =>
                       update((p) => ({
@@ -1277,7 +1268,10 @@ export default function App() {
                 <h2>
                   <FileMusic size={19} /> Acompanhe cada nota
                 </h2>
-                <p>Sua cifra, sua tablatura e o áudio no mesmo ritmo.</p>
+                <p>
+                  Compassos, cifras e tablaturas gerados a partir das pistas de
+                  áudio.
+                </p>
               </div>
               <button
                 className="button secondary compact"
@@ -1287,7 +1281,7 @@ export default function App() {
                   setPanel("import");
                 }}
               >
-                <Upload size={15} /> Importar cifra / tab
+                <Upload size={15} /> Correção manual · TXT
               </button>
             </div>
             <div className="notation-card">
@@ -1299,27 +1293,19 @@ export default function App() {
                 >
                   <button
                     role="tab"
+                    aria-selected={tab === "arrangement"}
+                    className={tab === "arrangement" ? "active" : ""}
+                    onClick={() => setTab("arrangement")}
+                  >
+                    <Music2 size={15} /> Arranjo da IA
+                  </button>
+                  <button
+                    role="tab"
                     aria-selected={tab === "text"}
                     className={tab === "text" ? "active" : ""}
                     onClick={() => setTab("text")}
                   >
                     <FileText size={15} /> Cifras e texto
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={tab === "tab"}
-                    className={tab === "tab" ? "active" : ""}
-                    onClick={() => setTab("tab")}
-                  >
-                    <Guitar size={15} /> Tablatura
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={tab === "score"}
-                    className={tab === "score" ? "active" : ""}
-                    onClick={() => setTab("score")}
-                  >
-                    <ListMusic size={15} /> Guitar Pro
                   </button>
                 </div>
                 <div className="notation-actions">
@@ -1335,7 +1321,7 @@ export default function App() {
                   )}
                   <button
                     className={`button ghost compact ${editing ? "selected-control" : ""}`}
-                    disabled={!project}
+                    disabled={!project || tab !== "text"}
                     onClick={() => setEditing(!editing)}
                   >
                     <Settings2 size={15} />{" "}
@@ -1343,45 +1329,45 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              {tab === "tab" ? (
-                <TabView
+              {tab === "arrangement" ? (
+                <ArrangementView
                   tracks={project?.tracks || []}
+                  cues={project?.cues || []}
+                  timing={project?.timing}
+                  bpm={project?.bpm}
+                  duration={project?.duration || 0}
                   time={time}
+                  selectedTrack={selectedTrack}
+                  demo={project?.demo}
                   onSeek={seek}
+                  onChangeNote={(id, index, note) =>
+                    update((p) => ({
+                      ...p,
+                      tracks: p.tracks.map((t) =>
+                        t.id === id
+                          ? {
+                              ...t,
+                              notes: note
+                                ? t.notes?.map((n, i) =>
+                                    i === index ? note : n,
+                                  )
+                                : t.notes?.filter((_, i) => i !== index),
+                            }
+                          : t,
+                      ),
+                    }))
+                  }
+                  onGrid={(bpm, numerator) =>
+                    update((p) => ({
+                      ...p,
+                      bpm,
+                      timing: {
+                        ...measureGrid(p.duration, bpm, numerator),
+                        estimated: false,
+                      },
+                    }))
+                  }
                 />
-              ) : tab === "score" ? (
-                score ? (
-                  <Suspense
-                    fallback={
-                      <div className="empty-notation">
-                        Carregando partitura…
-                      </div>
-                    }
-                  >
-                    <ScoreView
-                      file={score}
-                      cues={project?.cues || []}
-                      time={time}
-                      onBars={scoreBars}
-                    />
-                  </Suspense>
-                ) : (
-                  <div className="empty-notation">
-                    <FileMusic size={30} />
-                    <h3>Traga seu arranjo.</h3>
-                    <p>
-                      Importe um arquivo Guitar Pro ou MusicXML e marque o
-                      início dos compassos para acompanhar sua gravação.
-                    </p>
-                    <button
-                      className="button secondary compact"
-                      disabled={!project}
-                      onClick={() => scoreInput.current?.click()}
-                    >
-                      <Upload size={15} /> Abrir partitura
-                    </button>
-                  </div>
-                )
               ) : visibleCues.length ? (
                 <div className={`cue-display ${editing ? "editing" : ""}`}>
                   {visibleCues.map((cue, i) => (
@@ -1493,48 +1479,15 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {editing && project && (
+              {editing && project && tab === "text" && (
                 <div className="sync-footer">
                   <span>
                     <Radio size={14} /> Selecione um trecho e pressione{" "}
                     <kbd>M</kbd> no momento certo.
                   </span>
-                  <div>
-                    {tab === "score" && visibleCues.length > 0 && (
-                      <select
-                        aria-label="Compasso a sincronizar"
-                        value={
-                          visibleCues.some((c) => c.id === selectedCue)
-                            ? selectedCue
-                            : ""
-                        }
-                        onChange={(e) => setSelectedCue(e.target.value)}
-                      >
-                        <option value="">Selecione um compasso</option>
-                        {visibleCues.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.text}{" "}
-                            {c.start === null ? "" : formatTime(c.start)}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    {tab === "score" ? (
-                      <button
-                        className="button primary compact"
-                        disabled={
-                          !visibleCues.some((c) => c.id === selectedCue)
-                        }
-                        onClick={() => markCue()}
-                      >
-                        <Radio size={13} /> Marcar compasso
-                      </button>
-                    ) : (
-                      <button className="button ghost compact" onClick={newCue}>
-                        <Plus size={13} /> Novo trecho
-                      </button>
-                    )}
-                  </div>
+                  <button className="button ghost compact" onClick={newCue}>
+                    <Plus size={13} /> Novo trecho
+                  </button>
                 </div>
               )}
             </div>
@@ -1762,12 +1715,9 @@ export default function App() {
                 <div className="modal-footer">
                   <button
                     className="button ghost"
-                    onClick={() => {
-                      setPanel("none");
-                      scoreInput.current?.click();
-                    }}
+                    onClick={() => setPanel("none")}
                   >
-                    Importar Guitar Pro / MusicXML
+                    Cancelar
                   </button>
                   <button
                     className="button primary"

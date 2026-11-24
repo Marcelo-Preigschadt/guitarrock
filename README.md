@@ -2,7 +2,7 @@
 
 **Sua música. Seu jeito de tocar.**
 
-Estúdio web para carregar uma gravação, separar instrumentos, criar acompanhamentos e sincronizar cifras e tablaturas com o áudio original. Interface em português, compatível com computador e celular.
+Estúdio web para carregar uma gravação, separar instrumentos e gerar automaticamente um arranjo em compassos, pautas, cifras e tablaturas, sincronizado com as pistas de áudio reais. Interface em português, compatível com computador e celular.
 
 ## Funcionalidades implementadas
 
@@ -12,11 +12,15 @@ Estúdio web para carregar uma gravação, separar instrumentos, criar acompanha
 - Forma de onda com posição de reprodução, marcadores arrastáveis e repetição A–B.
 - Importação de texto TXT, LRC e ChordPro; espaços de cifras e tablaturas ASCII são preservados. LRC mantém os timestamps.
 - Sincronização manual por bloco ou linha: selecione o trecho, toque o áudio e pressione **M**, ou use **Marcar**. Tempos também podem ser digitados.
-- Importação de Guitar Pro 3–8 e MusicXML via alphaTab, seleção de instrumento e marcação manual do início de cada compasso. O compasso sincronizado é destacado sobre a partitura.
+- **Arranjo da IA**: pautas e tablaturas geradas diretamente dos eventos de notas detectados, com cifras acima dos compassos, cursor e páginas acompanhando a reprodução. Não exige importação de Guitar Pro/MusicXML e não gera arquivos MIDI.
+- Edição visual de cada nota: início, fim, corda, casa ou altura. A grade visual pode ser ajustada por BPM e compasso. A reprodução usa os WAVs separados, preservando o timbre da gravação.
+- Marcação de ataques de bateria, melodia da voz e notas de piano. O andamento, a métrica e as digitações são estimativas editáveis.
 - Separação real com Demucs: modelos `htdemucs` (4 pistas), `htdemucs_ft` (4 pistas, refinado) e `htdemucs_6s` (6 pistas, experimental).
 - Transcrição de notas por stem com Basic Pitch; estimativa de cordas e casas para guitarra e baixo em afinação padrão. Piano mantém eventos de notas no projeto.
 - Estimativa de acordes maiores/menores por chroma, segmentação rítmica e suavização temporal. Trechos sem evidência suficiente não recebem um acorde inventado.
 - Fila SQLite persistente, worker separado da API, progresso por etapa, cancelamento e detecção de worker interrompido.
+- Separação com janelas de 4 segundos por padrão, retentativa automática com janelas menores quando há falta de memória e diagnóstico copiável na tela para falhas de memória, rede/modelos, dependências e disco. As janelas não limitam a duração da música.
+- Transcrição ONNX em blocos de até 32 segundos com contexto e fusão de eventos nas fronteiras, para limitar o uso de memória.
 - Acesso às tarefas e arquivos restrito à chave aleatória da sessão do navegador.
 - Projetos locais persistidos no IndexedDB, exportação/importação de `.riffsync` com áudios e partitura, download das pistas e exportação do acompanhamento em WAV.
 - Cache offline do aplicativo após um carregamento completo da versão de produção. A IA exige o servidor; sessões já baixadas podem ser estudadas localmente.
@@ -65,12 +69,25 @@ O workflow manual **Publish web app to GitHub Pages** gera e publica `frontend/d
 
 GitHub Pages hospeda a interface estática. Para usar IA, hospede a API **e o worker** em um servidor Python e informe sua URL em **Configurações → Endereço do servidor**. Inclua a origem exata do frontend em `CORS_ORIGINS`, por exemplo `https://SEU-USUARIO.github.io`, e use HTTPS quando a interface estiver em HTTPS. O servidor precisa ter acesso aos pesos dos modelos. Não há servidor de IA público contratado ou configurado neste repositório.
 
+## Atualizar um Codespace existente
+
+Na raiz do repositório:
+
+```bash
+git pull --ff-only && python3 scripts/restart.py
+```
+
+Esse comando recompila a interface, encerra somente os processos RiffSync deste checkout, inicia API e worker e verifica o endpoint de saúde. Os uploads e projetos do diretório `data` são preservados. Após a confirmação, recarregue a aba do aplicativo.
+
+Se uma tarefa falhar, abra **Ver diagnóstico do processamento → Copiar diagnóstico**. Tarefas antigas que falharam também exibem os logs quando ainda estão disponíveis no servidor. Não é necessário copiar o terminal.
+
 ## Configuração do backend
 
 | Variável | Padrão | Finalidade |
 |---|---|---|
 | `RIFFSYNC_DATA` | `./data` | SQLite, uploads e resultados; deve ser compartilhado entre API e worker |
 | `RIFFSYNC_DEVICE` | `auto` | `cpu`, `cuda` ou seleção automática |
+| `SEPARATION_SEGMENT_SECONDS` | `4` | Janela interna do modelo, entre 1 e 7 segundos |
 | `MAX_UPLOAD_MB` | `200` | Limite por upload no backend |
 | `MAX_DURATION_SECONDS` | `1200` | Duração máxima do áudio enviado à IA |
 | `JOB_TIMEOUT_SECONDS` | `7200` | Timeout por etapa de subprocesso |
@@ -122,12 +139,12 @@ O teste de modelos usa uma gravação sintetizada de 5 segundos, passa pelo endp
 
 ## Limites da transcrição
 
-A separação não recupera perfeitamente os instrumentos originais; vazamentos e artefatos afetam as notas detectadas. O modelo de seis pistas não garante a separação entre guitarra solo e base, e sua saída de piano é experimental. Basic Pitch estima alturas e durações; cordas/casas são uma digitação possível, não uma identificação da execução original. Bends, slides, ligaduras e articulações não são reconstruídos nesta versão. O estimador de cifras atual cobre tríades maiores/menores, não um dicionário completo de acordes. Todo material gerado pode ser complementado pelo editor manual ou substituído por TXT/Guitar Pro/MusicXML.
+A separação não recupera perfeitamente os instrumentos originais; vazamentos e artefatos afetam as notas detectadas. O modelo de seis pistas não garante a separação entre guitarra solo e base, e sua saída de piano é experimental. Basic Pitch estima alturas e durações; cordas/casas são uma digitação possível, não uma identificação da execução original. Bends, slides, ligaduras e articulações não são reconstruídos nesta versão. O estimador de cifras atual cobre tríades maiores/menores, não um dicionário completo de acordes. Todo material gerado pode ser corrigido no editor de notas ou complementado por cifras e tablaturas TXT sincronizadas manualmente. A grade de compassos é estimada em 4/4 por padrão, podendo ser corrigida pelo usuário.
 
 ## Componentes utilizados
 
 - [React](https://react.dev/) e [TypeScript](https://www.typescriptlang.org/)
-- [alphaTab](https://alphatab.net/) — renderização musical, MPL-2.0
+- [Bravura](https://github.com/steinbergmedia/bravura) — fonte musical SMuFL, SIL OFL; distribuída pelo pacote alphaTab. A notação usa SVG próprio, sem o player MIDI do alphaTab.
 - [Demucs](https://github.com/facebookresearch/demucs) — separação, MIT; repositório original arquivado
 - [Basic Pitch](https://github.com/spotify/basic-pitch) — transcrição, Apache-2.0
 - [librosa](https://librosa.org/) — análise de áudio, ISC

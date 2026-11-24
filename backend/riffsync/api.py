@@ -10,13 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from . import config, db
+from .diagnostics import summarize_failure
 
 @asynccontextmanager
 async def lifespan(_app):
     db.init()
     yield
 
-app = FastAPI(title="RiffSync API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="RiffSync API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=config.ORIGINS, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Workspace-Key"])
 
 def owner(x_workspace_key: str = Header(default="")):
@@ -77,7 +78,17 @@ async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str, key=Depends(owner)):
-    return db.public(owned(job_id, key))
+    job = owned(job_id, key)
+    # Existing failed tasks gain diagnostics without uploading the song again.
+    if job["status"] == "failed" and not job.get("error_details"):
+        logs = sorted((config.DATA / job_id).glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if logs:
+            with logs[0].open("rb") as stream:
+                stream.seek(max(0, logs[0].stat().st_size - 16000))
+                detail = stream.read().decode("utf-8", errors="replace")
+            code, error, excerpt = summarize_failure("indisponível", detail)
+            job.update(error=error, error_code=code, error_details=excerpt)
+    return db.public(job)
 
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, key=Depends(owner)):

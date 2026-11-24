@@ -55,7 +55,7 @@ export async function createDemo(): Promise<Session> {
           notes.push({
             start: at,
             end: at + beat * 0.8,
-            midi,
+            pitch: midi,
             velocity: 0.7,
             string: 6 - index,
             fret: midi - tuning[index],
@@ -69,7 +69,7 @@ export async function createDemo(): Promise<Session> {
             notes.push({
               start: at,
               end: at + beat * 0.85,
-              midi,
+              pitch: midi,
               velocity: 0.8,
               string: 4 - idx,
               fret: midi - [28, 33, 38, 43][idx],

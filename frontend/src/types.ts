@@ -1,7 +1,8 @@
 export type Note = {
   start: number;
   end: number;
-  midi: number;
+  pitch: number;
+  midi?: number; // Compatibility with projects saved before 0.2; no MIDI files or playback.
   velocity: number;
   string?: number;
   fret?: number;
@@ -42,6 +43,7 @@ export type Project = {
   jobBase?: string;
   jobApplied?: boolean;
   scoreName?: string;
+  timing?: Timing;
 };
 export type Session = {
   project: Project;
@@ -54,10 +56,13 @@ export type Job = {
   stage: string;
   progress: number;
   error?: string;
+  error_code?: string;
+  error_details?: string;
   warnings: string[];
   result?: {
     duration: number;
     bpm?: number;
+    timing?: Timing;
     tracks: {
       id: string;
       name: string;
@@ -67,6 +72,18 @@ export type Job = {
     }[];
     chords: { start: number; end: number; label: string }[];
   };
+};
+export type Measure = {
+  index: number;
+  start: number;
+  end: number;
+  numerator: number;
+  denominator: number;
+};
+export type Timing = {
+  beats: number[];
+  measures: Measure[];
+  estimated: boolean;
 };
 export const PALETTE: Record<string, string> = {
   vocals: "#d6a1f3",

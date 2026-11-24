@@ -20,7 +20,7 @@ from riffsync.api import app
 from riffsync.worker import process
 
 def fixture(path):
-    sr, seconds = 22050, 5
+    sr, seconds = 22050, int(os.environ.get("RIFFSYNC_SMOKE_SECONDS", "5"))
     with wave.open(str(path), "wb") as output:
         output.setparams((1, 2, sr, 0, "NONE", "not compressed"))
         data = bytearray()
@@ -49,6 +49,8 @@ def main():
             result = client.get(f"/api/jobs/{job['id']}", headers={'X-Workspace-Key':'smoke_' + 'a'*60}).json()
             assert result['status'] == 'completed', result
             assert len(result['result']['tracks']) == 6, result
+            assert result['result']['timing']['measures'], result
+            assert not list((config.DATA / job['id']).rglob('*.mid')), 'No MIDI file should be generated'
             for track in result['result']['tracks']:
                 audio = client.get(f"/api/jobs/{job['id']}/files/{track['file']}", headers={'X-Workspace-Key':'smoke_'+'a'*60})
                 assert audio.status_code == 200 and len(audio.content) > 1000

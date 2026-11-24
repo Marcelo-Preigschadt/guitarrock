@@ -90,6 +90,15 @@ class ServiceTests(unittest.TestCase):
         response = self.client.post('/api/jobs', headers=HEADERS, files={'file':('audio.mp3', b'test', 'audio/mpeg')})
         self.assertEqual(response.status_code, 503)
 
+    def test_existing_failed_jobs_expose_diagnostic_only_to_owner(self):
+        job = self.job(); directory = config.DATA / job['id']; directory.mkdir()
+        (directory/'separation.log').write_text('Traceback\nRuntimeError: out of memory')
+        db.update(job['id'], status='failed', error='generic')
+        response = self.client.get(f"/api/jobs/{job['id']}", headers=HEADERS)
+        self.assertEqual(response.json()['error_code'], 'memory')
+        self.assertIn('out of memory', response.json()['error_details'])
+        self.assertEqual(self.client.get(f"/api/jobs/{job['id']}", headers={'X-Workspace-Key':'b'*64}).status_code, 404)
+
     def test_fingering_never_assigns_two_simultaneous_notes_to_one_string(self):
         notes = [{'start':0, 'end':1, 'midi':m, 'velocity':0.8} for m in (40, 47, 52, 55, 59, 64)]
         result = assign_strings(notes)

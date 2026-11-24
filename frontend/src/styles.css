@@ -2737,3 +2737,334 @@ kbd {
     scroll-behavior: auto !important;
   }
 }
+@font-face {
+  font-family: RiffMusic;
+  src: url("/music/Bravura.woff2") format("woff2");
+  font-display: swap;
+}
+.music-clef {
+  font-family: RiffMusic, serif;
+}
+.arrangement {
+  padding: 0 20px 18px;
+}
+.arrangement-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 17px 0;
+  border-bottom: 1px solid #323b40;
+  flex-wrap: wrap;
+}
+.arrangement-controls > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.arrangement-audio-label {
+  font-size: 12px;
+  color: #bfda9e;
+  background: #2a3522;
+  border: 1px solid #455f31;
+  padding: 5px 9px;
+  border-radius: 4px;
+}
+.arrangement-estimate {
+  font-size: 12px;
+  color: #8c9c89;
+}
+.arrangement-controls label,
+.arrangement-page-head label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: #a0aea6;
+  white-space: nowrap;
+}
+.arrangement-grid-editor {
+  padding: 14px 0;
+  display: flex;
+  align-items: end;
+  gap: 15px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #34403b;
+}
+.arrangement-grid-editor label {
+  font-size: 12px;
+  color: #a0b19c;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.arrangement-grid-editor input {
+  width: 80px;
+  min-height: 33px;
+  font-size: 13px;
+}
+.arrangement-grid-editor select {
+  min-height: 33px;
+  font-size: 13px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.arrangement-grid-editor > span {
+  font-size: 12px;
+  color: #718174;
+  margin-bottom: 9px;
+}
+.arrangement-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 0;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.arrangement-page-head > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #bccbb2;
+}
+.arrangement-page-head strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.arrangement-page-head span {
+  font-family: monospace;
+  font-size: 11px;
+  color: #7e8b81;
+}
+.arrangement-track {
+  border: 1px solid #353f37;
+  border-left: 3px solid var(--track);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.arrangement-track.selected {
+  border-color: #5c7449;
+  border-left-color: var(--track);
+}
+.arrangement-track-name {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 15px;
+  background: #222a23;
+}
+.arrangement-track-name strong {
+  font-size: 14px;
+  color: var(--track);
+  font-weight: 600;
+}
+.arrangement-track-name span {
+  font-size: 11px;
+  color: #7e907d;
+}
+.arrangement-paper {
+  background: #f3f5ed;
+  overflow: auto;
+  padding: 10px 5px 5px;
+}
+.arrangement-paper svg {
+  display: block;
+  width: 100%;
+  min-width: 460px;
+}
+.arrangement-note {
+  cursor: pointer;
+  outline: none;
+}
+.arrangement-note:hover ellipse,
+.arrangement-note:focus ellipse {
+  stroke: #82b346;
+  stroke-width: 3;
+}
+.arrangement-note:hover text,
+.arrangement-note:focus text {
+  fill: #427819;
+}
+.score-bar-label {
+  cursor: pointer;
+}
+.arrangement-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 7px;
+}
+.arrangement-pagination > span {
+  font-size: 12px;
+  color: #81917b;
+}
+.arrangement-help {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #7e8f78;
+  border-top: 1px solid #313b32;
+  padding-top: 15px;
+  margin-top: 13px;
+}
+.untranscribed-track {
+  padding: 20px;
+  color: #8b9986;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.note-editor {
+  position: fixed;
+  bottom: 25px;
+  right: 25px;
+  background: #202a20;
+  border: 1px solid #718c58;
+  border-radius: 9px;
+  box-shadow: 0 15px 80px #000a;
+  z-index: 95;
+  padding: 19px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 440px;
+  max-width: calc(100vw - 30px);
+}
+.note-editor > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+}
+.note-editor strong {
+  font-size: 14px;
+  color: #d4e7c3;
+}
+.note-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #a0b790;
+  min-width: 70px;
+  flex: 1;
+}
+.note-editor input,
+.note-editor select {
+  width: 100%;
+  font-family: monospace;
+  min-height: 35px;
+  font-size: 13px;
+  padding: 7px;
+}
+.note-editor > .button {
+  margin-top: 4px;
+}
+.job-diagnostics {
+  margin-top: 12px;
+  max-width: 100%;
+  font-size: 12px;
+  color: #cfb8a2;
+}
+.job-diagnostics summary {
+  cursor: pointer;
+  padding: 5px 0;
+}
+.job-diagnostics textarea {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #c4b6a8;
+  background: #1c1917;
+  margin: 8px 0;
+  white-space: pre;
+  overflow: auto;
+}
+.job-status > div:first-child > div {
+  min-width: 0;
+  width: 100%;
+}
+.job-status.failed {
+  align-items: start;
+}
+.job-status.failed > .icon-button {
+  margin-top: 3px;
+}
+.arrangement-empty .arrangement-audio-label {
+  margin-top: 6px;
+}
+@media (max-width: 740px) {
+  .arrangement {
+    padding: 0 10px 13px;
+  }
+  .arrangement-controls {
+    gap: 9px;
+    padding: 12px 0;
+  }
+  .arrangement-controls > div {
+    gap: 8px;
+  }
+  .arrangement-controls label,
+  .arrangement-page-head label {
+    font-size: 11px;
+  }
+  .arrangement-audio-label {
+    font-size: 10px;
+  }
+  .arrangement-estimate {
+    font-size: 10px;
+  }
+  .arrangement-page-head {
+    gap: 9px;
+    padding: 15px 0;
+  }
+  .arrangement-page-head strong {
+    font-size: 11px;
+  }
+  .arrangement-page-head span {
+    font-size: 10px;
+  }
+  .arrangement-track-name {
+    padding: 10px;
+    gap: 9px;
+  }
+  .arrangement-track-name strong {
+    font-size: 13px;
+  }
+  .arrangement-track-name span {
+    font-size: 10px;
+  }
+  .arrangement-paper {
+    padding: 8px 2px 2px;
+  }
+  .arrangement-paper svg {
+    min-width: 410px;
+  }
+  .arrangement-help {
+    font-size: 11px;
+  }
+  .untranscribed-track {
+    font-size: 12px;
+    padding: 15px;
+  }
+  .note-editor {
+    bottom: 15px;
+    right: 15px;
+    width: 360px;
+    padding: 15px;
+  }
+  .note-editor label {
+    font-size: 11px;
+  }
+  .arrangement-pagination > .button {
+    font-size: 11px;
+  }
+  .arrangement-pagination > span {
+    font-size: 11px;
+  }
+}

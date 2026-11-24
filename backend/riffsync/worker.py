@@ -12,6 +12,7 @@ import time
 import uuid
 from pathlib import Path
 from . import config, db
+from .diagnostics import summarize_failure
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("riffsync")
@@ -20,10 +21,22 @@ stop = threading.Event()
 class Cancelled(Exception):
     pass
 
+class ProcessingFailure(RuntimeError):
+    def __init__(self, returncode, log_path):
+        with log_path.open("rb") as stream:
+            stream.seek(max(0, log_path.stat().st_size - 16000))
+            detail = stream.read().decode("utf-8", errors="replace")
+        self.category, message, self.details = summarize_failure(returncode, detail)
+        super().__init__(message)
+
 def command(args, job_id, log_path, progress=False):
     started = time.monotonic()
     with log_path.open("wb") as output:
-        process = subprocess.Popen(args, stdout=output, stderr=output, start_new_session=True)
+        env = dict(os.environ)
+        env.setdefault("OMP_NUM_THREADS", "2")
+        env.setdefault("MKL_NUM_THREADS", "2")
+        env.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+        process = subprocess.Popen(args, stdout=output, stderr=output, start_new_session=True, env=env)
         try:
             while process.poll() is None:
                 job = db.get(job_id)
@@ -41,7 +54,7 @@ def command(args, job_id, log_path, progress=False):
                 stop.wait(1)
             if process.returncode:
                 log.error("Command failed for job %s; see %s", job_id, log_path)
-                raise RuntimeError("O processamento de áudio falhou. Verifique o arquivo, os modelos e a memória disponível no servidor.")
+                raise ProcessingFailure(process.returncode, log_path)
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -74,9 +87,23 @@ def process(job):
     db.update(job_id, progress=10, stage="Separando os instrumentos")
     device = config.DEVICE
     if device == "auto":
-        import torch
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    command([sys.executable, "-m", "demucs", "-n", job["model"], "-d", device, "--shifts", "1", "--overlap", "0.25", "--out", str(directory / "separated"), str(directory / "source.wav")], job_id, directory / "separation.log", progress=True)
+        # Do not retain a second PyTorch runtime in the supervisor process.
+        probe = subprocess.run([sys.executable, "-c", "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')"], capture_output=True, text=True, timeout=60)
+        device = "cuda" if probe.returncode == 0 and probe.stdout.strip() == "cuda" else "cpu"
+    # Shorter model windows bound peak RAM; the song retains its full duration.
+    segment = int(min(7, max(1, config.SEGMENT_SECONDS)))
+    attempts = list(dict.fromkeys([(device, segment), (device, min(2.0, segment)), ("cpu", 1.0)]))
+    for attempt, (target_device, target_segment) in enumerate(attempts):
+        try:
+            command([sys.executable, "-m", "demucs", "-n", job["model"], "-d", target_device,
+                     "--segment", str(int(target_segment)), "--jobs", "0", "--shifts", "1", "--overlap", "0.25",
+                     "--out", str(directory / "separated"), str(directory / "source.wav")], job_id,
+                    directory / ("separation.log" if attempt == 0 else f"separation-retry-{attempt}.log"), progress=True)
+            break
+        except ProcessingFailure as error:
+            if error.category != "memory" or attempt == len(attempts) - 1:
+                raise
+            db.update(job_id, stage="Repetindo a separação com menor uso de memória", progress=10)
     separated = directory / "separated" / job["model"] / "source"
     output = directory / "output"; output.mkdir(exist_ok=True)
     tracks = []
@@ -88,7 +115,7 @@ def process(job):
             tracks.append({"id": kind, "kind": kind, "name": names[kind], "file": file.name})
     if len(tracks) < 4:
         raise RuntimeError("O separador não gerou todas as pistas esperadas.")
-    transcription = {"bpm": None, "chords": [], "notes": {}, "warnings": []}
+    transcription = {"bpm": None, "chords": [], "notes": {}, "timing": None, "warnings": []}
     if job["transcribe"]:
         db.update(job_id, progress=75, stage="Estimando cifras e notas dos instrumentos")
         try:
@@ -101,7 +128,7 @@ def process(job):
     for track in tracks:
         track["notes"] = transcription["notes"].get(track["kind"], [])
     db.update(job_id, status="completed", stage="Pronto para tocar", progress=100,
-              warnings=transcription["warnings"], result={"duration": length, "bpm": transcription["bpm"], "tracks": tracks, "chords": transcription["chords"]})
+              warnings=transcription["warnings"], result={"duration": length, "bpm": transcription["bpm"], "timing": transcription.get("timing"), "tracks": tracks, "chords": transcription["chords"]})
     shutil.rmtree(directory / "separated", ignore_errors=True)
     (directory / "source.wav").unlink(missing_ok=True)
 
@@ -131,7 +158,8 @@ def main():
             db.update(job["id"], status="cancelled", stage="Processamento interrompido")
         except Exception as error:
             log.exception("Job %s failed", job["id"])
-            db.update(job["id"], status="failed", stage="Não foi possível concluir", error=str(error)[:350])
+            db.update(job["id"], status="failed", stage="Não foi possível concluir", error=str(error)[:350],
+                      error_code=getattr(error, "category", "processing"), error_details=getattr(error, "details", ""))
     with db.connect() as c:
         c.execute("DELETE FROM workers WHERE id=?", (worker_id,))
 

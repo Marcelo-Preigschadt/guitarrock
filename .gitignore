@@ -10,3 +10,5 @@ data/
 .DS_Store
 frontend/public/alphatab/
 *.egg-info/
+
+frontend/public/music/
