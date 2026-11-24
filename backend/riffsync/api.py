@@ -3,6 +3,7 @@ import importlib.util
 import os
 import re
 import shutil
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Depends, File, Form, Header, HTTPException, UploadFile
@@ -79,6 +80,11 @@ async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str, key=Depends(owner)):
     job = owned(job_id, key)
+    if job['status'] == 'completed' and job.get('result'):
+        from .media import waveform
+        for track in job['result']['tracks']:
+            if Path(track['file']).name == track['file']:
+                track['waveform'] = waveform(config.DATA/job_id/'output'/track['file'])
     # Existing failed tasks gain diagnostics without uploading the song again.
     if job['status'] == 'failed':
         detail = job.get('error_details') or ''
@@ -128,7 +134,7 @@ def delete_job(job_id: str, key=Depends(owner)):
         c.execute("DELETE FROM jobs WHERE id=? AND owner=?", (job_id, key))
 
 @app.get("/api/jobs/{job_id}/files/{filename}")
-def get_file(job_id: str, filename: str, key=Depends(owner)):
+def get_file(job_id: str, filename: str, format: str = 'wav', key=Depends(owner)):
     job = owned(job_id, key)
     if job["status"] != "completed":
         raise HTTPException(409, "O processamento ainda não foi concluído.")
@@ -138,7 +144,15 @@ def get_file(job_id: str, filename: str, key=Depends(owner)):
     path = config.DATA / job_id / "output" / filename
     if not path.is_file():
         raise HTTPException(404, "Arquivo removido ou indisponível.")
-    return FileResponse(path, media_type="audio/wav", filename=filename)
+    if format not in {'wav', 'm4a'}:
+        raise HTTPException(422, 'Formato de reprodução inválido.')
+    if format == 'm4a':
+        from .media import playback
+        try: path = playback(path)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+            raise HTTPException(503, str(error)) from error
+    return FileResponse(path, media_type='audio/mp4' if format == 'm4a' else 'audio/wav',
+                        filename=Path(filename).stem+'.'+format, headers={'Cache-Control':'private, max-age=86400'})
 
 dist = Path(os.environ.get("FRONTEND_DIST", str(Path.cwd() / "frontend" / "dist")))
 if dist.is_dir():

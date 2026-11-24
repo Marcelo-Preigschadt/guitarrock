@@ -9,6 +9,7 @@ import {
   Volume2,
   VolumeX,
   Download,
+  RotateCcw,
 } from "lucide-react";
 import type { Track } from "../types";
 import { download } from "../storage";
@@ -20,6 +21,8 @@ type Props = {
   file?: Blob;
   onSelect: () => void;
   onChange: (changes: Partial<Track>) => void;
+  onRetry?: () => void;
+  onDownload?: () => void;
 };
 export function TrackRow({
   track: t,
@@ -28,6 +31,8 @@ export function TrackRow({
   file,
   onSelect,
   onChange,
+  onRetry,
+  onDownload,
 }: Props) {
   const Icon =
     (
@@ -55,7 +60,15 @@ export function TrackRow({
         <span>
           <strong>{t.name}</strong>
           <small>
-            {t.kind === "original" ? "Áudio importado" : "Pista de instrumento"}
+            {t.loadState === "loading"
+              ? "Carregando áudio…"
+              : t.loadState === "pending"
+                ? "Áudio aguardando carregamento"
+                : t.loadState === "error"
+                  ? "Falha ao carregar áudio"
+                  : t.kind === "original"
+                    ? "Áudio importado"
+                    : "Pista de instrumento"}
           </small>
         </span>
       </button>
@@ -119,17 +132,38 @@ export function TrackRow({
         >
           {t.visible ? <Eye size={15} /> : <EyeOff size={15} />}
         </button>
-        {file && (
+        {t.loadState === "error" && onRetry && (
+          <button
+            className="mini-button"
+            aria-label={`Recuperar áudio de ${t.name}`}
+            onClick={onRetry}
+            title="Recuperar áudio já separado"
+          >
+            <RotateCcw size={15} />
+          </button>
+        )}
+        {(file || onDownload) && (
           <button
             className="mini-button download-track"
             aria-label={`Baixar áudio de ${t.name}`}
-            title="Baixar pista"
-            onClick={() => download(file, t.filename || `${t.name}.wav`)}
+            title={onDownload ? "Baixar WAV original" : "Baixar pista"}
+            onClick={() =>
+              onDownload
+                ? onDownload()
+                : file &&
+                  download(
+                    file,
+                    t.playbackFormat === "m4a"
+                      ? `${t.name}.m4a`
+                      : t.filename || `${t.name}.wav`,
+                  )
+            }
           >
             <Download size={15} />
           </button>
         )}
       </div>
+      {t.loadError && <p className="track-load-error">{t.loadError}</p>}
     </div>
   );
 }

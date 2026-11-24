@@ -31,7 +31,8 @@ import {
   Wifi,
   X,
 } from "lucide-react";
-import { StudioAudio, peaks, renderMix } from "./audio";
+import { StudioAudio, preferMediaPlayback, renderMix } from "./audio";
+import { mergeResult, receiveResult } from "./delivery";
 import { createDemo } from "./demo";
 import {
   artifact,
@@ -89,6 +90,8 @@ export default function App() {
   const [separationError, setSeparationError] = useState("");
   const [connectionError, setConnectionError] = useState("");
   const [jobRevision, setJobRevision] = useState(0);
+  const [receiving, setReceiving] = useState(false);
+  const deliveryFlight = useRef<AbortController | null>(null);
   const [apiBase, setApiBase] = useState(serverBase);
   const [connection, setConnection] = useState<Health | null>(null);
   const [checking, setChecking] = useState(false);
@@ -145,6 +148,7 @@ export default function App() {
     const tick = () => {
       const audio = engine.current;
       if (audio.playing) {
+        audio.synchronize();
         const { loop: range, loopEnabled: enabled } = loopRef.current;
         if (enabled && range && audio.time >= range[1])
           void audio.seek(range[0], tracksRef.current);
@@ -197,6 +201,9 @@ export default function App() {
   }, []);
 
   const open = async (session: Session) => {
+    deliveryFlight.current?.abort();
+    deliveryFlight.current = null;
+    setReceiving(false);
     const token = ++op.current;
     setBusy("Carregando o áudio…");
     engine.current.reset();
@@ -210,22 +217,49 @@ export default function App() {
     setSeparationError("");
     try {
       const waves: Record<string, number[]> = {};
+      const tracks: Track[] = [];
+      const stream = preferMediaPlayback(
+        session.project.duration,
+        session.project.jobId
+          ? Math.max(7, session.project.tracks.length)
+          : session.project.tracks.length,
+      );
       for (const t of session.project.tracks) {
-        if (!session.files[t.id]) throw new Error(`Áudio ausente: ${t.name}`);
-        const buffer = await engine.current.decode(t.id, session.files[t.id]);
+        const track = { ...t, notes: t.notes?.map(normalizeNote) };
+        if (!session.files[t.id]) {
+          if (!session.project.jobId)
+            throw new Error(`Áudio ausente: ${t.name}`);
+          tracks.push({ ...track, loadState: "pending", loadError: undefined });
+          continue;
+        }
+        try {
+          const samples = await engine.current.load(
+            t.id,
+            session.files[t.id],
+            stream,
+          );
+          waves[t.id] = t.waveform?.length ? t.waveform : samples;
+          tracks.push({ ...track, loadState: "ready", loadError: undefined });
+        } catch (error) {
+          if (!session.project.jobId) throw error;
+          tracks.push({
+            ...track,
+            loadState: "error",
+            loadError: message(error),
+          });
+        }
         if (op.current !== token) return;
-        waves[t.id] = peaks(buffer);
       }
       setFiles(session.files);
       setScore(session.score);
       setWaveforms(waves);
       setProject({
         ...session.project,
-        duration: engine.current.duration,
-        tracks: session.project.tracks.map((t) => ({
-          ...t,
-          notes: t.notes?.map(normalizeNote),
-        })),
+        duration: Math.max(session.project.duration, engine.current.duration),
+        tracks,
+        jobApplied:
+          session.project.jobApplied &&
+          tracks.every((t) => t.loadState === "ready"),
       });
       setSelectedTrack(
         session.project.tracks.find((t) => t.kind === "guitar")?.id ||
@@ -368,84 +402,116 @@ export default function App() {
       const p = projectRef.current;
       if (!p || p.jobId !== resultJob.id || !resultJob.result || p.jobApplied)
         return;
-      const projectId = p.id;
-      setBusy("Carregando as pistas separadas…");
+      if (deliveryFlight.current) return;
+      const projectId = p.id,
+        controller = new AbortController();
+      deliveryFlight.current = controller;
+      setReceiving(true);
       engine.current.pause();
       setPlaying(false);
       try {
-        const newFiles: Record<string, Blob> = Object.fromEntries(
-          p.tracks
-            .filter((t) => t.kind === "original")
-            .map((t) => [t.id, filesRef.current[t.id]]),
+        const merged = mergeResult(p, resultJob);
+        engine.current.retain(new Set(merged.tracks.map((track) => track.id)));
+        update((current) =>
+          current.id === projectId ? mergeResult(current, resultJob) : current,
         );
-        const newWaves: Record<string, number[]> = {};
-        const tracks: Track[] = [];
-        for (const result of resultJob.result.tracks) {
-          const id = `${resultJob.id}-${result.id}`,
-            file = await artifact(base, resultJob.id, result.file);
-          if (projectRef.current?.id !== projectId) return;
-          newFiles[id] = file;
-          const buffer = await engine.current.decode(id, file);
-          newWaves[id] = peaks(buffer);
-          tracks.push({
-            ...makeTrack(result.kind, id),
-            name: result.name,
-            volume: 1,
-            notes: result.notes?.map(normalizeNote),
-            filename: result.file,
-          });
-        }
-        const originals = p.tracks
-          .filter((t) => t.kind === "original")
-          .map((t) => ({ ...t, muted: true, solo: false }));
-        const retained = new Set([...tracks, ...originals].map((t) => t.id));
-        for (const id of engine.current.buffers.keys())
-          if (!retained.has(id)) engine.current.buffers.delete(id);
-        update((current) => {
-          const aiCues = resultJob
-            .result!.chords.filter((c) => c.label !== "N")
-            .map((c) => ({
-              id: crypto.randomUUID(),
-              text: c.label,
-              start: c.start,
-              end: c.end,
-              source: "ai" as const,
-            }));
-          return {
-            ...current,
-            tracks: [...tracks, ...originals],
-            jobApplied: true,
-            bpm: resultJob.result!.bpm,
-            timing: resultJob.result!.timing,
-            cues: current.cues.some(
-              (c) => c.source === "manual" && c.barIndex === undefined,
-            )
-              ? current.cues.filter(
-                  (c) => c.source === "manual" && c.barIndex === undefined,
-                )
-              : aiCues,
-          };
-        });
-        setFiles(newFiles);
-        setWaveforms((old) => ({
-          ...Object.fromEntries(originals.map((t) => [t.id, old[t.id]])),
-          ...newWaves,
+        setWaveforms((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            merged.tracks
+              .filter((t) => t.waveform?.length)
+              .map((t) => [t.id, t.waveform!]),
+          ),
         }));
         setSelectedTrack(
-          tracks.find((t) => t.kind === "guitar")?.id || tracks[0].id,
+          merged.tracks.find((t) => t.kind === "guitar")?.id ||
+            merged.tracks[0].id,
         );
         setTab("arrangement");
         setEditing(false);
-        notify(
-          "Pistas e arranjo prontos. Escolha o instrumento que quer tocar.",
+        const stream = preferMediaPlayback(
+          merged.duration,
+          merged.tracks.length,
         );
-      } catch (e) {
+        const valid = () =>
+          !controller.signal.aborted && projectRef.current?.id === projectId;
+        const result = await receiveResult({
+          job: resultJob,
+          files: { ...filesRef.current },
+          signal: controller.signal,
+          hasAudio: (id) =>
+            engine.current.has(id) &&
+            !(stream && engine.current.buffers.has(id)),
+          fetchFile: (file, signal) =>
+            artifact(base, resultJob.id, file, signal, true),
+          loadAudio: (id, file) => engine.current.load(id, file, stream),
+          onFile: (id, file) => {
+            if (valid()) {
+              setFiles((current) => ({ ...current, [id]: file }));
+              update((current) =>
+                current.id !== projectId
+                  ? current
+                  : {
+                      ...current,
+                      tracks: current.tracks.map((t) =>
+                        t.id === id
+                          ? {
+                              ...t,
+                              playbackFormat: file.type.includes("mp4")
+                                ? "m4a"
+                                : "wav",
+                            }
+                          : t,
+                      ),
+                    },
+              );
+            }
+          },
+          onTrack: (id, state, error, samples) => {
+            if (!valid()) return;
+            update((current) =>
+              current.id !== projectId
+                ? current
+                : {
+                    ...current,
+                    tracks: current.tracks.map((t) =>
+                      t.id === id
+                        ? { ...t, loadState: state, loadError: error }
+                        : t,
+                    ),
+                  },
+            );
+            if (samples?.length)
+              setWaveforms((current) => ({ ...current, [id]: samples }));
+            if (state === "loading")
+              setJobNotice(
+                `Carregando ${merged.tracks.find((t) => t.id === id)?.name || "pista"}… O arranjo já está disponível.`,
+              );
+          },
+        });
+        if (!valid()) return;
+        update((current) =>
+          current.id === projectId
+            ? { ...current, jobApplied: result.ready === result.total }
+            : current,
+        );
         setJobNotice(
-          "As pistas estão prontas no servidor, mas o download falhou. Reabra esta sessão para tentar novamente.",
+          result.failures.length
+            ? `${result.ready} de ${result.total} pistas carregadas. ${result.failures.join(" | ")}`
+            : "",
         );
-        notify(message(e));
+        if (!result.failures.length)
+          notify(
+            "Pistas e arranjo carregados. Escolha o instrumento que quer tocar.",
+          );
+      } catch (e) {
+        if (!controller.signal.aborted)
+          setJobNotice(`Não foi possível carregar o resultado: ${message(e)}`);
       } finally {
-        setBusy("");
+        if (deliveryFlight.current === controller) {
+          deliveryFlight.current = null;
+          setReceiving(false);
+        }
       }
     },
     [update, notify],
@@ -521,7 +587,14 @@ export default function App() {
   const separate = async (requestedBase = serverBase()) => {
     const p = projectRef.current,
       original = p?.tracks.find((t) => t.kind === "original");
-    if (!p || p.demo || !original || busy || jobActive) return;
+    if (!p || p.demo || !original || busy || jobActive || receiving) return;
+    if (
+      !p.jobApplied &&
+      (job?.status === "completed" || (p.jobResultId === p.jobId && p.jobId))
+    ) {
+      setJobRevision((value) => value + 1);
+      return;
+    }
     setSeparationError("");
     setConnectionError("");
     setBusy("Verificando o servidor de processamento…");
@@ -648,6 +721,7 @@ export default function App() {
           engine.current.buffers,
           project.tracks,
           project.duration,
+          files,
         ),
         `${project.title}-acompanhamento.wav`,
       );
@@ -672,10 +746,13 @@ export default function App() {
   };
   const hasStems =
     (project?.tracks.filter((t) => t.kind !== "original").length || 0) > 0;
-  const mainWave =
+  const preferredWave =
     waveforms[
       project?.tracks.find((t) => t.kind === "original")?.id || selectedTrack
     ] || [];
+  const mainWave = preferredWave.length
+    ? preferredWave
+    : Object.values(waveforms).find((values) => values.length) || [];
   const visibleCues =
     project?.cues.filter((c) => c.barIndex === undefined) || [];
 
@@ -918,7 +995,9 @@ export default function App() {
               >
                 <FolderOpen size={17} /> Carregar música
               </button>
-              <small>MP3, WAV, FLAC, M4A, OGG, AAC, WebM e Opus · até 200 MB</small>
+              <small>
+                MP3, WAV, FLAC, M4A, OGG, AAC, WebM e Opus · até 200 MB
+              </small>
               <div className="upload-bottom">
                 <span>Quer conhecer primeiro?</span>
                 <button
@@ -1113,19 +1192,25 @@ export default function App() {
           )}
 
           {job && (
-            <div className={`job-status ${job.status}`}>
+            <div
+              className={`job-status ${job.status === "completed" && !project?.jobApplied ? "delivering" : job.status}`}
+            >
               <div>
                 <span className="job-icon">
-                  {jobActive ? (
+                  {jobActive || receiving ? (
                     <LoaderCircle className="spin" size={18} />
-                  ) : job.status === "completed" ? (
+                  ) : job.status === "completed" && project?.jobApplied ? (
                     <Check size={18} />
                   ) : (
                     <Activity size={18} />
                   )}
                 </span>
                 <div>
-                  <strong>{job.stage}</strong>
+                  <strong>
+                    {job.status === "completed" && !project?.jobApplied
+                      ? "Resultado gerado · carregando as pistas"
+                      : job.stage}
+                  </strong>
                   <p>
                     {jobNotice ||
                       job.error ||
@@ -1175,6 +1260,19 @@ export default function App() {
                       }}
                     >
                       Retomar processamento
+                    </button>
+                  )}
+                  {job.status === "completed" && (
+                    <button
+                      className="button secondary compact job-retry"
+                      disabled={receiving || !!busy}
+                      onClick={() => {
+                        update((p) => ({ ...p, jobApplied: false }));
+                        setJobRevision((value) => value + 1);
+                      }}
+                    >
+                      <RotateCcw size={15} />{" "}
+                      {receiving ? "Carregando pistas…" : "Recuperar resultado"}
                     </button>
                   )}
                 </div>
@@ -1235,13 +1333,18 @@ export default function App() {
               </div>
               <button
                 className="button ai-button"
-                disabled={!canSeparate || !!busy || jobActive}
+                disabled={!canSeparate || !!busy || jobActive || receiving}
                 onClick={() => {
                   void separate();
                 }}
               >
                 <Sparkles size={16} />{" "}
-                {hasStems ? "Analisar novamente" : "Separar com IA"}
+                {!project?.jobApplied &&
+                (job?.status === "completed" || project?.jobResultId)
+                  ? "Recuperar resultado"
+                  : hasStems
+                    ? "Analisar novamente"
+                    : "Separar com IA"}
               </button>
             </div>
             <div className="mixer-card">
@@ -1253,6 +1356,27 @@ export default function App() {
                     selected={track.id === selectedTrack}
                     samples={waveforms[track.id] || []}
                     file={files[track.id]}
+                    onRetry={() => {
+                      if (!receiving) setJobRevision((value) => value + 1);
+                    }}
+                    onDownload={
+                      project.jobId && track.kind !== "original"
+                        ? () => {
+                            void artifact(
+                              project.jobBase || "",
+                              project.jobId!,
+                              track.filename || `${track.kind}.wav`,
+                            )
+                              .then((blob) =>
+                                download(
+                                  blob,
+                                  track.filename || `${track.kind}.wav`,
+                                ),
+                              )
+                              .catch((error) => notify(message(error)));
+                          }
+                        : undefined
+                    }
                     onSelect={() => {
                       setSelectedTrack(track.id);
                       if (track.kind === "guitar" || track.kind === "bass")
@@ -1767,7 +1891,13 @@ export default function App() {
                   </button>
                   <button
                     className="button primary"
-                    disabled={!canSeparate || !!busy || jobActive || checking}
+                    disabled={
+                      !canSeparate ||
+                      !!busy ||
+                      jobActive ||
+                      checking ||
+                      receiving
+                    }
                     onClick={() => {
                       void separate(apiBase);
                     }}

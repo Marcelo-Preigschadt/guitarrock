@@ -18,6 +18,10 @@ export type Track = {
   visible: boolean;
   notes?: Note[];
   filename?: string;
+  loadState?: "pending" | "loading" | "ready" | "error";
+  loadError?: string;
+  waveform?: number[];
+  playbackFormat?: "wav" | "m4a";
 };
 export type Cue = {
   id: string;
@@ -42,6 +46,7 @@ export type Project = {
   jobId?: string;
   jobBase?: string;
   jobApplied?: boolean;
+  jobResultId?: string;
   scoreName?: string;
   timing?: Timing;
 };
@@ -69,6 +74,7 @@ export type Job = {
       kind: string;
       file: string;
       notes?: Note[];
+      waveform?: number[];
     }[];
     chords: { start: number; end: number; label: string }[];
   };

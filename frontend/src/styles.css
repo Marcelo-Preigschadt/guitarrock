@@ -1208,6 +1208,17 @@ kbd {
 .job-status.failed p {
   color: #ae8d7b;
 }
+.job-status.delivering {
+  border-color: #65582f;
+  background: #28251c;
+}
+.track-load-error {
+  grid-column: 1 / -1;
+  color: #dfaf98;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  padding: 0 12px 8px;
+}
 .inline-notice {
   font-size: 14px;
   padding: 15px;

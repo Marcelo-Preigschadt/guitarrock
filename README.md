@@ -7,7 +7,9 @@ Estúdio web para carregar uma gravação, separar instrumentos e gerar automati
 ## Funcionalidades implementadas
 
 - Importação local de MP3, WAV, FLAC, OGG, M4A, AAC, WebM e Opus, conforme os codecs do navegador. WebM pode conter vídeo: o processamento extrai sua pista de áudio automaticamente.
-- Reprodução multifaixa usando um único relógio Web Audio e controle de volume, mute e solo por pista.
+- Reprodução multifaixa com controle de volume, mute e solo por pista. Trechos curtos usam buffers Web Audio; projetos longos usam elementos de mídia com relógio de uma pista de referência e correção de desvio, evitando carregar todas as pistas como PCM na memória.
+- Reprodução em M4A/AAC a 320 kbps, preparada uma vez e guardada no servidor, adaptando o mecanismo técnico do FaixaLab. Os WAVs separados permanecem intactos para download pelo botão de cada pista. O original enviado não é alterado.
+- Entrega incremental: cifras, notas, tablaturas e compassos aparecem assim que o manifesto está pronto. Cada pista tem estado de carregamento próprio. Uma falha não oculta as demais nem remove as correções já feitas.
 - Controle de visibilidade da notação independente do mute do áudio.
 - Forma de onda com posição de reprodução, marcadores arrastáveis e repetição A–B.
 - Importação de texto TXT, LRC e ChordPro; espaços de cifras e tablaturas ASCII são preservados. LRC mantém os timestamps.
@@ -85,6 +87,8 @@ Para uma tarefa que já falhou, clique em **Retomar processamento**: o servidor 
 
 Se uma tarefa falhar, abra **Ver diagnóstico do processamento → Copiar diagnóstico**. Tarefas antigas que falharam também exibem os logs quando ainda estão disponíveis no servidor. Não é necessário copiar o terminal.
 
+Se a IA concluiu mas faltam áudios, use **Recuperar resultado**. Essa ação busca o resultado da mesma tarefa e reutiliza as pistas já recebidas; não envia a música novamente nem executa o separador. O erro indica o arquivo e a resposta HTTP quando disponíveis. A partitura e a cifra permanecem acessíveis durante a recuperação. Projetos parcialmente recebidos são salvos localmente e retomam a entrega ao serem reabertos.
+
 ## Configuração do backend
 
 | Variável | Padrão | Finalidade |
@@ -113,6 +117,7 @@ Documentação interativa em `/docs`.
 | POST | `/api/jobs/{id}/cancel` | Interromper processamento |
 | POST | `/api/jobs/{id}/retry` | Recolocar tarefa com falha na fila, reutilizando o upload |
 | GET | `/api/jobs/{id}/files/{filename}` | Baixar uma pista finalizada |
+| GET | `/api/jobs/{id}/files/{filename}?format=m4a` | Reprodução AAC em cache, com a mesma autenticação e suporte a HTTP Range |
 | DELETE | `/api/jobs/{id}` | Remover tarefa finalizada com sucesso ou falha |
 
 Exceto `/health`, as rotas requerem `X-Workspace-Key` com a chave gerada pelo frontend. A chave não é enviada em query strings. Isso isola sessões, mas não implementa cadastro, login Google, recuperação de conta ou quotas por pessoa. A fila limita tarefas ativas por sessão e globalmente. Para uma oferta pública multiusuário, acrescente autenticação e quotas de processamento antes da abertura.

@@ -21,6 +21,10 @@ export function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 export async function exportSession(session: Session) {
+  if (session.project.tracks.some((track) => !session.files[track.id]))
+    throw new Error(
+      "Recupere as pistas pendentes antes de exportar o projeto completo. As cifras e tablaturas já estão salvas neste dispositivo.",
+    );
   if (
     Object.values(session.files).reduce(
       (n, b) => n + b.size,
@@ -114,7 +118,14 @@ export async function importSession(file: File): Promise<Session> {
   for (const track of p.tracks) {
     const bytes = unpacked[`audio/${track.id}`];
     if (!bytes) throw new Error(`Áudio ausente: ${track.name}`);
-    files[track.id] = new Blob([new Uint8Array(bytes).buffer]);
+    files[track.id] = new Blob([new Uint8Array(bytes).buffer], {
+      type:
+        track.playbackFormat === "m4a"
+          ? "audio/mp4"
+          : track.playbackFormat === "wav"
+            ? "audio/wav"
+            : "",
+    });
   }
   p.id = crypto.randomUUID();
   p.updated = Date.now();
