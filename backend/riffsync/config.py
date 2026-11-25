@@ -9,4 +9,6 @@ RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "7"))
 DEVICE = os.environ.get("RIFFSYNC_DEVICE", "auto")
 SEGMENT_SECONDS = float(os.environ.get("SEPARATION_SEGMENT_SECONDS", "4"))
 MODELS = {"htdemucs", "htdemucs_6s", "htdemucs_ft"}
+LYRICS_MODEL = os.environ.get('LYRICS_MODEL', 'small')
+LYRICS_LANGUAGE = os.environ.get('LYRICS_LANGUAGE', '')
 ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000").split(",") if o.strip()]

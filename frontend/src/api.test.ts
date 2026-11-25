@@ -72,3 +72,56 @@ describe("download de pistas autenticadas", () => {
     expect(fetch.mock.calls[0]?.length).toBeGreaterThan(0);
   });
 });
+
+describe("retomada de downloads interrompidos pelo proxy", () => {
+  it("conserva o primeiro MiB e retoma apenas o intervalo que falhou", async () => {
+    const size = 1024 * 1024 + 46;
+    const bytes = new Uint8Array(size);
+    bytes.set(new TextEncoder().encode("RIFF"));
+    bytes.set(new TextEncoder().encode("WAVE"), 8);
+    let fail = true;
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      const range = (init.headers as Record<string, string>).Range;
+      const start = Number(/bytes=(\d+)/.exec(range)![1]);
+      const end = Math.min(start + 1024 * 1024 - 1, size - 1);
+      const body =
+        start > 0 && fail
+          ? new ReadableStream({
+              start(controller) {
+                controller.error(new TypeError("Failed to fetch"));
+              },
+            })
+          : bytes.slice(start, end + 1);
+      return new Response(body, {
+        status: 206,
+        headers: {
+          "content-type": "audio/wav",
+          "content-length": String(end - start + 1),
+          "content-range": `bytes ${start}-${end}/${size}`,
+          etag: '"same-wav"',
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(artifact("", "interrupted-job", "vocals.wav")).rejects.toThrow(
+      "Transferência interrompida em 1024 KB",
+    );
+    fail = false;
+    expect((await artifact("", "interrupted-job", "vocals.wav")).size).toBe(
+      size,
+    );
+    expect(
+      fetch.mock.calls.map(
+        (call) => (call[1].headers as Record<string, string>).Range,
+      ),
+    ).toEqual([
+      "bytes=0-1048575",
+      "bytes=1048576-2097151",
+      "bytes=1048576-2097151",
+      "bytes=1048576-2097151",
+    ]);
+    expect(
+      (fetch.mock.calls[3][1].headers as Record<string, string>)["If-Range"],
+    ).toBe('"same-wav"');
+  });
+});

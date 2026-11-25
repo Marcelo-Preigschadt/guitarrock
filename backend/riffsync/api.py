@@ -1,5 +1,6 @@
 import hashlib
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -18,8 +19,8 @@ async def lifespan(_app):
     db.init()
     yield
 
-app = FastAPI(title="RiffSync API", version="0.2.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=config.ORIGINS, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Workspace-Key"])
+app = FastAPI(title="RiffSync API", version="0.3.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=config.ORIGINS, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Workspace-Key", "Range", "If-Range"], expose_headers=["Content-Range", "Content-Length", "Accept-Ranges", "ETag"])
 
 def owner(x_workspace_key: str = Header(default="")):
     if not re.fullmatch(r"[a-zA-Z0-9_-]{32,160}", x_workspace_key):
@@ -37,11 +38,13 @@ def owned(job_id, key):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "worker_online": db.worker_online(),
+            "version": "0.3.0", "build": frontend_version(),
             "separation_available": bool(importlib.util.find_spec("demucs")) and bool(shutil.which("ffmpeg")),
-            "transcription_available": bool(importlib.util.find_spec("basic_pitch")), "device": config.DEVICE}
+            "transcription_available": bool(importlib.util.find_spec("basic_pitch")),
+            "lyrics_available": bool(importlib.util.find_spec('faster_whisper')), "device": config.DEVICE}
 
 @app.post("/api/jobs", status_code=202)
-async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6s"), transcribe: bool = Form(True), key=Depends(owner)):
+async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6s"), transcribe: bool = Form(True), lyrics: bool = Form(True), key=Depends(owner)):
     if model not in config.MODELS:
         raise HTTPException(422, "Modelo de separação inválido.")
     if not db.worker_online() or not importlib.util.find_spec("demucs"):
@@ -50,7 +53,7 @@ async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6
     if extension not in {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".webm", ".weba", ".opus"}:
         raise HTTPException(415, "Envie MP3, WAV, FLAC, OGG, M4A, AAC, WebM ou Opus.")
     try:
-        job = db.create(key, Path(file.filename or "audio").name[:180], model, transcribe)
+        job = db.create(key, Path(file.filename or "audio").name[:180], model, transcribe, lyrics=lyrics)
     except ValueError as error:
         raise HTTPException(429, str(error)) from error
     directory = config.DATA / job["id"]
@@ -115,6 +118,24 @@ def retry_job(job_id: str, key=Depends(owner)):
     except ValueError as error:
         raise HTTPException(429, str(error)) from error
 
+@app.post('/api/jobs/{job_id}/lyrics', status_code=202)
+def recognize_lyrics(job_id: str, key=Depends(owner)):
+    job=owned(job_id,key)
+    if job['status'] != 'completed': raise HTTPException(409,'Aguarde a separação dos instrumentos terminar.')
+    if not (config.DATA/job_id/'output'/'vocals.wav').is_file():
+        raise HTTPException(409,'A faixa de voz separada não está mais disponível no servidor.')
+    if not importlib.util.find_spec('faster_whisper'):
+        raise HTTPException(503,'O reconhecimento da letra ainda não foi instalado no servidor. Atualize pelo script de reinício.')
+    try: return db.public(db.request_lyrics(job_id))
+    except ValueError as error: raise HTTPException(429,str(error)) from error
+
+@app.post('/api/jobs/{job_id}/lyrics/cancel')
+def cancel_lyrics(job_id: str, key=Depends(owner)):
+    job=owned(job_id,key)
+    if job.get('lyrics_state') in {'queued','running'}:
+        job=db.update(job_id,lyrics_state='cancelled',lyrics_stage='Reconhecimento da letra cancelado')
+    return db.public(job)
+
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, key=Depends(owner)):
     job = owned(job_id, key)
@@ -155,5 +176,17 @@ def get_file(job_id: str, filename: str, format: str = 'wav', key=Depends(owner)
                         filename=Path(filename).stem+'.'+format, headers={'Cache-Control':'private, max-age=86400'})
 
 dist = Path(os.environ.get("FRONTEND_DIST", str(Path.cwd() / "frontend" / "dist")))
+
+def frontend_version():
+    try: return json.loads((dist/'version.json').read_text())
+    except (OSError, ValueError): return None
+
+@app.middleware('http')
+async def fresh_application(request, call_next):
+    response = await call_next(request)
+    if request.url.path in {'/', '/index.html', '/sw.js', '/version.json', '/api/health'}:
+        response.headers['Cache-Control'] = 'no-store'
+    return response
+
 if dist.is_dir():
     app.mount("/", StaticFiles(directory=dist, html=True), name="studio")

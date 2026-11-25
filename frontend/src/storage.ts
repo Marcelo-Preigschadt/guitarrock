@@ -114,6 +114,34 @@ export async function importSession(file: File): Promise<Session> {
     )
   )
     throw new Error("Marcadores inválidos.");
+  if (
+    p.lyrics !== undefined &&
+    (!Array.isArray(p.lyrics) ||
+      p.lyrics.length > 10000 ||
+      !p.lyrics.every(
+        (line: {
+          start: number;
+          end: number;
+          text: string;
+          words?: { start: number; end: number; text: string }[];
+        }) =>
+          Number.isFinite(line.start) &&
+          Number.isFinite(line.end) &&
+          line.start >= 0 &&
+          line.end > line.start &&
+          typeof line.text === "string" &&
+          (line.words === undefined ||
+            (Array.isArray(line.words) &&
+              line.words.every(
+                (word) =>
+                  Number.isFinite(word.start) &&
+                  Number.isFinite(word.end) &&
+                  typeof word.text === "string",
+              ))),
+      ))
+  )
+    throw new Error("Letra sincronizada inválida.");
+  p.lyricsPending = false;
   const files: Record<string, Blob> = {};
   for (const track of p.tracks) {
     const bytes = unpacked[`audio/${track.id}`];

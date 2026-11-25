@@ -36,11 +36,12 @@ def heartbeat(worker_id):
     with connect() as c:
         c.execute("INSERT OR REPLACE INTO workers VALUES (?, ?)", (worker_id, time.time()))
 
-def create(owner, filename, model, transcribe):
+def create(owner, filename, model, transcribe, lyrics=False):
     now, job_id = time.time(), uuid.uuid4().hex
     payload = {"id": job_id, "filename": filename, "model": model, "transcribe": transcribe,
                "status": "uploading", "stage": "Recebendo o áudio", "progress": 0,
-               "created": now, "updated": now, "warnings": [], "result": None, "error": None}
+               "created": now, "updated": now, "warnings": [], "result": None, "error": None,
+               'recognize_lyrics': lyrics, 'lyrics_state': 'waiting' if lyrics else 'not_requested'}
     with connect() as c:
         c.execute("BEGIN IMMEDIATE")
         count = c.execute("SELECT COUNT(*) FROM jobs WHERE owner=? AND status IN ('uploading','queued','running')", (owner,)).fetchone()[0]
@@ -65,6 +66,8 @@ def update(job_id, **changes):
         # A cancellation committed by the API must win over a late worker result.
         if payload["status"] == "cancelled" and changes.get("status") != "cancelled":
             return payload
+        if payload.get('lyrics_state') == 'cancelled' and any(k.startswith('lyrics_') for k in changes) and changes.get('lyrics_state') != 'cancelled':
+            return payload
         payload.update(changes, updated=time.time())
         c.execute("UPDATE jobs SET status=?, updated=?, payload=? WHERE id=?", (payload["status"], payload["updated"], json.dumps(payload), job_id))
     return payload
@@ -79,6 +82,30 @@ def claim(worker_id):
         payload.update(status="running", stage="Preparando o áudio", progress=2, worker=worker_id, updated=time.time())
         c.execute("UPDATE jobs SET status='running', updated=?, payload=? WHERE id=?", (payload["updated"], json.dumps(payload), row["id"]))
         return payload
+
+def request_lyrics(job_id):
+    with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        row = c.execute('SELECT owner,payload FROM jobs WHERE id=?',(job_id,)).fetchone()
+        if not row: return None
+        payload=json.loads(row['payload'])
+        if payload['status'] != 'completed': raise ValueError('Aguarde as faixas separadas ficarem prontas.')
+        if payload.get('lyrics_state') in {'queued','running'}: return payload
+        count=c.execute("SELECT COUNT(*) FROM jobs WHERE owner=? AND json_extract(payload,'$.lyrics_state') IN ('queued','running')",(row['owner'],)).fetchone()[0]
+        if count >= 2: raise ValueError('Aguarde a letra de outra música terminar.')
+        payload.update(lyrics_state='queued',lyrics_progress=0,lyrics_error=None,lyrics_recoveries=0,lyrics_signal_retries=0,lyrics_stage='Letra na fila',updated=time.time())
+        c.execute('UPDATE jobs SET updated=?,payload=? WHERE id=?',(payload['updated'],json.dumps(payload),job_id))
+    return payload
+
+def claim_lyrics(worker_id):
+    with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        row=c.execute("SELECT id,payload FROM jobs WHERE status='completed' AND json_extract(payload,'$.lyrics_state')='queued' ORDER BY updated LIMIT 1").fetchone()
+        if not row: return None
+        payload=json.loads(row['payload'])
+        payload.update(lyrics_state='running',lyrics_worker=worker_id,lyrics_stage='Preparando o reconhecimento da letra',updated=time.time())
+        c.execute('UPDATE jobs SET updated=?,payload=? WHERE id=?',(payload['updated'],json.dumps(payload),row['id']))
+    return payload
 
 def requeue(job_id, *, manual=False, crashed=False):
     """Preserve the upload while atomically separating retries from cancellation."""
@@ -121,9 +148,17 @@ def recover():
         p = json.loads(row["payload"])
         if p.get("worker") not in active and p["updated"] < time.time() - 45:
             requeue(row['id'], crashed=True)
+    with connect() as c:
+        rows=c.execute("SELECT id,payload FROM jobs WHERE status='completed' AND json_extract(payload,'$.lyrics_state')='running'").fetchall()
+    for row in rows:
+        payload=json.loads(row['payload'])
+        if payload.get('lyrics_worker') not in active and payload['updated'] < time.time()-45:
+            count=int(payload.get('lyrics_recoveries',0))+1
+            update(row['id'],lyrics_state='queued' if count <= 2 else 'failed',lyrics_recoveries=count,
+                   lyrics_error='O reconhecimento da letra foi interrompido pelo servidor.')
 
 def public(payload):
-    return {k: v for k, v in payload.items() if k not in {"worker", "model", "transcribe", "filename"}}
+    return {k: v for k, v in payload.items() if k not in {"worker", "model", "transcribe", "filename", 'recognize_lyrics', 'lyrics_worker'}}
 
 def prune():
     """Claim old terminal rows before removing their on-disk audio."""

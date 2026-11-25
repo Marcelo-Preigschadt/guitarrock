@@ -38,6 +38,8 @@ import {
   artifact,
   cancelJob,
   retryJob,
+  requestLyrics,
+  cancelLyrics,
   createJob,
   getJob,
   health,
@@ -60,6 +62,9 @@ import { Timeline } from "./components/Timeline";
 import { TrackRow } from "./components/TrackRow";
 import { ArrangementView } from "./components/ArrangementView";
 import { measureGrid, normalizeNote } from "./arrangement";
+import { mergeLyrics } from "./lyrics";
+import { LyricsView } from "./components/LyricsView";
+import { APP_VERSION, APP_REVISION } from "./version";
 
 type Panel = "none" | "settings" | "import" | "projects" | "help";
 
@@ -97,6 +102,9 @@ export default function App() {
   const [checking, setChecking] = useState(false);
   const [model, setModel] = useState("htdemucs_6s");
   const [transcribe, setTranscribe] = useState(true);
+  const [recognizeLyrics, setRecognizeLyrics] = useState(true);
+  const [manualText, setManualText] = useState(false);
+  const [lyricsRequest, setLyricsRequest] = useState(false);
   const [toast, setToast] = useState("");
   const [dragging, setDragging] = useState(false);
   const [exportMenu, setExportMenu] = useState(false);
@@ -517,7 +525,8 @@ export default function App() {
     [update, notify],
   );
   useEffect(() => {
-    if (!project?.jobId || project.jobApplied) return;
+    if (!project?.jobId || (project.jobApplied && !project.lyricsPending))
+      return;
     const id = project.jobId,
       base = project.jobBase || "";
     let stopped = false,
@@ -529,10 +538,19 @@ export default function App() {
         setJob(status);
         setJobNotice("");
         if (status.status === "completed") {
-          await applyResult(status, base);
+          update((current) => mergeLyrics(current, status));
+          if (!projectRef.current?.jobApplied) await applyResult(status, base);
+          if (
+            !["queued", "running", "waiting"].includes(
+              status.lyrics_state || "",
+            )
+          )
+            return;
+        }
+        if (status.status === "failed" || status.status === "cancelled") {
+          update((current) => mergeLyrics(current, status));
           return;
         }
-        if (status.status === "failed" || status.status === "cancelled") return;
       } catch {
         if (!stopped)
           setJobNotice(
@@ -552,9 +570,11 @@ export default function App() {
   }, [
     project?.jobId,
     project?.jobApplied,
+    project?.lyricsPending,
     project?.jobBase,
     jobRevision,
     applyResult,
+    update,
   ]);
 
   const connect = async () => {
@@ -626,6 +646,7 @@ export default function App() {
         p.filename,
         model,
         transcribe,
+        recognizeLyrics,
       );
       setJob(created);
       update((current) =>
@@ -636,6 +657,7 @@ export default function App() {
               jobId: created.id,
               jobBase: base,
               jobApplied: false,
+              lyricsPending: recognizeLyrics,
             },
       );
       setPanel("none");
@@ -650,6 +672,36 @@ export default function App() {
       setBusy("");
     }
   };
+  const generateLyrics = async () => {
+    const p = projectRef.current;
+    if (!p?.jobId || lyricsRequest) return;
+    setLyricsRequest(true);
+    try {
+      const status = await requestLyrics(p.jobBase || "", p.jobId);
+      if (projectRef.current?.id !== p.id) return;
+      setJob(status);
+      update((current) => mergeLyrics(current, status));
+      setManualText(false);
+      setTab("text");
+      setJobRevision((value) => value + 1);
+    } catch (error) {
+      notify(message(error));
+    } finally {
+      setLyricsRequest(false);
+    }
+  };
+  const stopLyrics = async () => {
+    const p = projectRef.current;
+    if (!p?.jobId) return;
+    try {
+      const status = await cancelLyrics(p.jobBase || "", p.jobId);
+      if (projectRef.current?.id !== p.id) return;
+      setJob(status);
+      update((current) => mergeLyrics(current, status));
+    } catch (error) {
+      notify(message(error));
+    }
+  };
   const readText = async (file: File) => {
     if (file.size > 2 * 1024 * 1024) {
       notify("O arquivo de texto deve ter até 2 MB.");
@@ -662,6 +714,7 @@ export default function App() {
     if (!text.trim()) return;
     const cues = parseText(text, textMode);
     update((p) => ({ ...p, rawText: text, cues }));
+    setManualText(true);
     setSelectedCue(cues[0]?.id || "");
     setEditing(true);
     setTab("text");
@@ -816,7 +869,7 @@ export default function App() {
           </span>
         </a>
         <div className="workspace-label">
-          SEU ESTÚDIO <span>v0.2</span>
+          SEU ESTÚDIO <span>v{APP_VERSION}</span>
         </div>
         <nav aria-label="Navegação principal">
           <button className="nav-item active" onClick={() => setPanel("none")}>
@@ -1086,6 +1139,8 @@ export default function App() {
                                     title: project.title,
                                     rawText: project.rawText,
                                     cues: project.cues,
+                                    lyrics: project.lyrics,
+                                    lyricsLanguage: project.lyricsLanguage,
                                   },
                                   null,
                                   2,
@@ -1216,7 +1271,11 @@ export default function App() {
                       job.error ||
                       (jobActive
                         ? "Você pode continuar editando e sincronizando enquanto a IA trabalha."
-                        : job.warnings.join(" "))}
+                        : project?.lyricsPending
+                          ? "As faixas estão disponíveis. A letra está sendo reconhecida; acompanhe na aba Letra e cifra."
+                          : job.lyrics_state === "ready"
+                            ? "Faixas, arranjo e letra disponíveis. Abra Letra e cifra para acompanhar a música."
+                            : job.warnings.join(" "))}
                   </p>
                   {job.error_details && (
                     <details className="job-diagnostics">
@@ -1467,7 +1526,7 @@ export default function App() {
                   <FileMusic size={19} /> Acompanhe cada nota
                 </h2>
                 <p>
-                  Compassos, cifras e tablaturas gerados a partir das pistas de
+                  Letra, cifras e tablaturas geradas a partir das pistas de
                   áudio.
                 </p>
               </div>
@@ -1503,7 +1562,7 @@ export default function App() {
                     className={tab === "text" ? "active" : ""}
                     onClick={() => setTab("text")}
                   >
-                    <FileText size={15} /> Cifras e texto
+                    <FileText size={15} /> Letra e cifra
                   </button>
                 </div>
                 <div className="notation-actions">
@@ -1527,6 +1586,81 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {tab === "text" && project && (
+                <div className="lyrics-status">
+                  <div>
+                    {project.lyricsPending ? (
+                      <span role="status">
+                        <LoaderCircle className="spin" size={15} />{" "}
+                        {job?.lyrics_stage ||
+                          "A letra será reconhecida após separar os instrumentos"}{" "}
+                        {job?.lyrics_progress ? `${job.lyrics_progress}%` : ""}
+                      </span>
+                    ) : job?.lyrics_state === "failed" ? (
+                      <span role="alert">
+                        {job.lyrics_error ||
+                          "O reconhecimento da letra falhou."}
+                      </span>
+                    ) : job?.lyrics_state === "no_speech" ? (
+                      <span>
+                        Nenhuma letra foi reconhecida na faixa de voz. Você pode
+                        importar ou corrigir o texto.
+                      </span>
+                    ) : project.lyrics?.length ? (
+                      <span>
+                        Letra da IA ·{" "}
+                        {project.lyricsLanguage || "idioma automático"}
+                      </span>
+                    ) : (
+                      <span>
+                        A letra é reconhecida na faixa de voz; a cifra, no
+                        acompanhamento.
+                      </span>
+                    )}
+                    {!!project.lyrics?.length && (
+                      <div className="text-source">
+                        <button
+                          className={!manualText ? "active" : ""}
+                          onClick={() => setManualText(false)}
+                        >
+                          Letra da IA
+                        </button>
+                        <button
+                          className={manualText ? "active" : ""}
+                          onClick={() => setManualText(true)}
+                        >
+                          {project.rawText ? "Texto importado" : "Acordes"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {project.lyricsPending ? (
+                    <button
+                      className="button ghost compact"
+                      onClick={() => void stopLyrics()}
+                      disabled={job?.status !== "completed"}
+                    >
+                      Cancelar letra
+                    </button>
+                  ) : project.jobId &&
+                    (project.jobResultId ||
+                      project.jobApplied ||
+                      job?.status === "completed") ? (
+                    <button
+                      className="button secondary compact"
+                      disabled={lyricsRequest}
+                      onClick={() => void generateLyrics()}
+                    >
+                      <Sparkles size={14} />{" "}
+                      {lyricsRequest
+                        ? "Solicitando…"
+                        : project.lyrics?.length
+                          ? "Reconhecer letra novamente"
+                          : "Gerar letra com IA"}
+                    </button>
+                  ) : null}
+                </div>
+              )}
               {tab === "arrangement" ? (
                 <ArrangementView
                   tracks={project?.tracks || []}
@@ -1563,6 +1697,23 @@ export default function App() {
                         ...measureGrid(p.duration, bpm, numerator),
                         estimated: false,
                       },
+                    }))
+                  }
+                />
+              ) : project?.lyrics?.length && !manualText ? (
+                <LyricsView
+                  lines={project.lyrics}
+                  cues={project.cues}
+                  time={time}
+                  follow={autoFollow}
+                  editing={editing}
+                  onSeek={seek}
+                  onChange={(index, line) =>
+                    update((p) => ({
+                      ...p,
+                      lyrics: p.lyrics?.map((item, i) =>
+                        i === index ? line : item,
+                      ),
                     }))
                   }
                 />
@@ -1657,10 +1808,9 @@ export default function App() {
                   </span>
                   <h3>O próximo acorde é seu.</h3>
                   <p>
-                    Importe uma cifra ou tablatura em texto e sincronize com sua
+                    Separe os instrumentos para reconhecer a letra e os acordes.
+                    Você também pode carregar um texto e sincronizá-lo com a
                     música.
-                    <br />
-                    Você também pode usar os acordes estimados pela IA.
                   </p>
                   <div>
                     <button
@@ -1677,17 +1827,20 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {editing && project && tab === "text" && (
-                <div className="sync-footer">
-                  <span>
-                    <Radio size={14} /> Selecione um trecho e pressione{" "}
-                    <kbd>M</kbd> no momento certo.
-                  </span>
-                  <button className="button ghost compact" onClick={newCue}>
-                    <Plus size={13} /> Novo trecho
-                  </button>
-                </div>
-              )}
+              {editing &&
+                project &&
+                tab === "text" &&
+                (!project.lyrics?.length || manualText) && (
+                  <div className="sync-footer">
+                    <span>
+                      <Radio size={14} /> Selecione um trecho e pressione{" "}
+                      <kbd>M</kbd> no momento certo.
+                    </span>
+                    <button className="button ghost compact" onClick={newCue}>
+                      <Plus size={13} /> Novo trecho
+                    </button>
+                  </div>
+                )}
             </div>
           </section>
 
@@ -1875,6 +2028,24 @@ export default function App() {
                 <p className="field-help">
                   As transcrições são editáveis. As pistas de áudio continuam
                   disponíveis quando uma transcrição falha.
+                </p>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={recognizeLyrics}
+                    onChange={(e) => setRecognizeLyrics(e.target.checked)}
+                  />{" "}
+                  Reconhecer e sincronizar a letra com IA
+                </label>
+                <p className="field-help">
+                  Usa a voz separada. O modelo é baixado no primeiro uso; depois
+                  fica guardado no servidor.
+                </p>
+                <p className="field-help">
+                  Aplicativo {APP_VERSION} · revisão {APP_REVISION}
+                  {connection?.build
+                    ? ` · servidor ${connection.build.version}`
+                    : ""}
                 </p>
                 {separationError && (
                   <div className="separation-error" role="alert">

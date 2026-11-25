@@ -1,6 +1,7 @@
 """Run in a child process, so cancellation also stops model inference."""
 import json
 import sys
+import subprocess
 import tempfile
 from pathlib import Path
 from .fingering import assign_strings
@@ -81,12 +82,32 @@ def transcribe_track(file, model):
             offset += 30; chunk += 1
     return merge_chunk_notes(events)
 
+def harmonic_source(output, destination):
+    """Prefer the separated accompaniment over vocals/drums for harmony analysis."""
+    files = [output/f'{kind}.wav' for kind in ('guitar','piano','other') if (output/f'{kind}.wav').is_file()]
+    if not files:
+        return output.parent/'source.wav'
+    args = ['ffmpeg','-nostdin','-v','error','-y']
+    for file in files: args += ['-i',str(file)]
+    weights = ['0.45' if file.stem == 'other' and len(files)>1 else '1' for file in files]
+    inputs = ''.join(f'[{i}:a]' for i in range(len(files)))
+    graph = inputs+f"amix=inputs={len(files)}:duration=longest:weights='{' '.join(weights)}':normalize=1"
+    subprocess.run(args+['-filter_complex',graph,'-ac','1','-ar','22050',str(destination)],check=True,capture_output=True,timeout=120)
+    return destination
+
+
 def run(directory):
     import importlib.util
     output = Path(directory)
     result = {"bpm": None, "chords": [], "notes": {}, "timing": None, "warnings": []}
     try:
-        result["bpm"], result["chords"], result["timing"] = estimate_chords(output.parent / "source.wav")
+        with tempfile.TemporaryDirectory(prefix='harmony-',dir=output) as temporary:
+            try:
+                source = harmonic_source(output, Path(temporary)/'accompaniment.wav')
+            except (subprocess.SubprocessError, OSError):
+                source = output.parent/'source.wav'
+                result['warnings'].append('Não foi possível reunir o acompanhamento; as cifras foram estimadas no áudio original.')
+            result["bpm"], result["chords"], result["timing"] = estimate_chords(source)
     except Exception as error:
         result["warnings"].append(f"Não foi possível estimar as cifras ({type(error).__name__}). Importe seu texto para sincronizar.")
     if importlib.util.find_spec("basic_pitch"):

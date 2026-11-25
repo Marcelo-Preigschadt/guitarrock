@@ -26,9 +26,11 @@ class WorkerStopping(Exception):
     pass
 
 
-def check_job(job_id):
+def check_job(job_id, lyrics=False):
     job = db.get(job_id)
     if not job or job['status'] == 'cancelled':
+        raise Cancelled()
+    if lyrics and job.get('lyrics_state') == 'cancelled':
         raise Cancelled()
     if stop.is_set():
         raise WorkerStopping()
@@ -59,7 +61,7 @@ class ProcessingFailure(RuntimeError):
 def command(args, job_id, log_path, progress=False):
     started, append = time.monotonic(), False
     while True:
-        check_job(job_id)
+        check_job(job_id, progress == 'lyrics')
         with log_path.open('ab' if append else 'wb') as output:
             env = dict(os.environ)
             env.setdefault('OMP_NUM_THREADS', '2')
@@ -70,10 +72,18 @@ def command(args, job_id, log_path, progress=False):
             log.info('Job %s: started child %s (worker %s)', job_id, process.pid, os.getpid())
             try:
                 while process.poll() is None:
-                    check_job(job_id)
+                    current = check_job(job_id, progress == 'lyrics')
                     if time.monotonic() - started > config.JOB_TIMEOUT:
                         raise RuntimeError('O processamento atingiu o limite de tempo do servidor.')
-                    if progress:
+                    if progress == 'lyrics':
+                        with log_path.open('rb') as reader:
+                            reader.seek(max(0, log_path.stat().st_size - 4096))
+                            markers = re.findall(rb'RIFFSYNC_LYRICS (\{[^\r\n]+\})', reader.read())
+                        if markers:
+                            end = float(json.loads(markers[-1])['end'])
+                            length = max(1,float((current.get('result') or {}).get('duration',1)))
+                            db.update(job_id,lyrics_progress=min(99,int(end/length*100)),lyrics_stage='Reconhecendo e sincronizando a letra')
+                    elif progress:
                         with log_path.open('rb') as reader:
                             reader.seek(max(0, log_path.stat().st_size - 4096))
                             percentages = re.findall(rb'(\d{1,3})%\|', reader.read())
@@ -82,13 +92,17 @@ def command(args, job_id, log_path, progress=False):
                             db.update(job_id, progress=10 + int(value * .6), stage='Separando os instrumentos')
                     stop.wait(.25)
                 # Cancellation/shutdown also wins if the child exited between polls.
-                job = check_job(job_id)
+                job = check_job(job_id, progress == 'lyrics')
                 if process.returncode == 0:
                     return
                 log.warning('Job %s: child %s exited with %s; worker stopping=%s', job_id, process.pid, process.returncode, stop.is_set())
-                if process.returncode == -signal.SIGTERM and int(job.get('signal_retries', 0)) < 1:
-                    db.update(job_id, signal_retries=1, stage='Separador interrompido; repetindo a etapa uma vez',
-                              progress=10 if progress else job.get('progress', 0))
+                retry_key = 'lyrics_signal_retries' if progress == 'lyrics' else 'signal_retries'
+                if process.returncode == -signal.SIGTERM and int(job.get(retry_key, 0)) < 1:
+                    if progress == 'lyrics':
+                        db.update(job_id, lyrics_signal_retries=1, lyrics_stage='Reconhecimento interrompido; repetindo a etapa uma vez')
+                    else:
+                        db.update(job_id, signal_retries=1, stage='Separador interrompido; repetindo a etapa uma vez',
+                                  progress=10 if progress else job.get('progress', 0))
                     output.write(b'\n[RiffSync] SIGTERM externo: repetindo uma vez com o worker ativo.\n'); output.flush()
                     append = True
                     stop.wait(.25)
@@ -170,9 +184,24 @@ def process(job):
     for track in tracks:
         track["notes"] = transcription["notes"].get(track["kind"], [])
     db.update(job_id, status="completed", stage="Pronto para tocar", progress=100,
-              warnings=transcription["warnings"], result={"duration": length, "bpm": transcription["bpm"], "timing": transcription.get("timing"), "tracks": tracks, "chords": transcription["chords"]})
+              warnings=transcription["warnings"], result={"duration": length, "bpm": transcription["bpm"], "timing": transcription.get("timing"), "tracks": tracks, "chords": transcription["chords"]},
+              lyrics_state='queued' if job.get('recognize_lyrics') else 'not_requested', lyrics_progress=0)
     shutil.rmtree(directory / "separated", ignore_errors=True)
     (directory / "source.wav").unlink(missing_ok=True)
+
+def process_lyrics(job):
+    directory = config.DATA/job['id']
+    source = directory/'output'/'vocals.wav'
+    if not source.is_file(): raise RuntimeError('A faixa de voz separada não está disponível no servidor.')
+    db.update(job['id'], lyrics_stage='Preparando a IA da letra; primeiro uso pode baixar o modelo')
+    destination = directory/'output'/'lyrics.json'
+    command([sys.executable,'-m','riffsync.lyrics',str(source),str(destination)],job['id'],directory/'lyrics.log',progress='lyrics')
+    recognized=json.loads(destination.read_text(encoding='utf-8'))
+    current=check_job(job['id'],lyrics=True)
+    result={**current['result'],'lyrics':recognized['lyrics'],'lyrics_language':recognized['language'],'lyrics_model':recognized['model'],
+            'lyrics_revision':uuid.uuid4().hex}
+    db.update(job['id'],result=result,lyrics_state=recognized['status'],lyrics_progress=100,lyrics_error=None,
+              lyrics_stage='Letra reconhecida' if recognized['lyrics'] else 'Nenhuma letra foi reconhecida nesta faixa de voz')
 
 def main():
     db.init()
@@ -196,18 +225,26 @@ def main():
         if time.monotonic() - last_cleanup > 3600:
             db.prune(); last_cleanup = time.monotonic()
         job = db.claim(worker_id)
+        lyrics_only = False
+        if not job:
+            job = db.claim_lyrics(worker_id)
+            lyrics_only = bool(job)
         if not job:
             stop.wait(2); continue
         try:
-            process(job)
+            process_lyrics(job) if lyrics_only else process(job)
         except WorkerStopping:
-            db.requeue(job['id'])
+            if lyrics_only: db.update(job['id'],lyrics_state='queued')
+            else: db.requeue(job['id'])
             log.info('Job %s preserved in queue for worker restart', job['id'])
         except Cancelled:
-            db.update(job["id"], status="cancelled", stage="Processamento interrompido")
+            if lyrics_only: db.update(job['id'],lyrics_state='cancelled',lyrics_stage='Reconhecimento da letra cancelado')
+            else: db.update(job["id"], status="cancelled", stage="Processamento interrompido")
         except Exception as error:
             log.exception("Job %s failed", job["id"])
-            db.update(job["id"], status="failed", stage="Não foi possível concluir", error=str(error)[:350],
+            if lyrics_only:
+                db.update(job['id'],lyrics_state='failed',lyrics_stage='Não foi possível reconhecer a letra',lyrics_error=str(error)[:600])
+            else: db.update(job["id"], status="failed", stage="Não foi possível concluir", error=str(error)[:350],
                       error_code=getattr(error, "category", "processing"), error_details=getattr(error, "details", ""), exit_code=getattr(error, 'returncode', None))
     with db.connect() as c:
         c.execute("DELETE FROM workers WHERE id=?", (worker_id,))

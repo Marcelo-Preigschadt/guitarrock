@@ -31,6 +31,12 @@ export type Cue = {
   barIndex?: number;
   source: "manual" | "ai";
 };
+export type Lyric = {
+  start: number;
+  end: number;
+  text: string;
+  words?: { start: number; end: number; text: string; confidence?: number }[];
+};
 export type Project = {
   version: 1;
   id: string;
@@ -41,6 +47,10 @@ export type Project = {
   tracks: Track[];
   cues: Cue[];
   rawText: string;
+  lyrics?: Lyric[];
+  lyricsLanguage?: string;
+  lyricsRevision?: string;
+  lyricsPending?: boolean;
   bpm?: number;
   demo?: boolean;
   jobId?: string;
@@ -64,6 +74,18 @@ export type Job = {
   error_code?: string;
   error_details?: string;
   warnings: string[];
+  lyrics_state?:
+    | "waiting"
+    | "not_requested"
+    | "queued"
+    | "running"
+    | "ready"
+    | "no_speech"
+    | "failed"
+    | "cancelled";
+  lyrics_progress?: number;
+  lyrics_stage?: string;
+  lyrics_error?: string;
   result?: {
     duration: number;
     bpm?: number;
@@ -77,6 +99,9 @@ export type Job = {
       waveform?: number[];
     }[];
     chords: { start: number; end: number; label: string }[];
+    lyrics?: Lyric[];
+    lyrics_language?: string;
+    lyrics_revision?: string;
   };
 };
 export type Measure = {

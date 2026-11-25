@@ -21,6 +21,9 @@ Estúdio web para carregar uma gravação, separar instrumentos e gerar automati
 - Início direto por **Separar com IA** no mixer ou **Separar instrumentos** nas configurações. Com API e worker no mesmo servidor do aplicativo, o endereço pode ficar vazio. Erros de envio permanecem visíveis na tela com a resposta do servidor.
 - Transcrição de notas por stem com Basic Pitch; estimativa de cordas e casas para guitarra e baixo em afinação padrão. Piano mantém eventos de notas no projeto.
 - Estimativa de acordes maiores/menores por chroma, segmentação rítmica e suavização temporal. Trechos sem evidência suficiente não recebem um acorde inventado.
+- Letra automática com faster-whisper/Whisper `small`, CPU `int8`, idioma automático e timestamps por palavra, usando o áudio de voz separado. A aba **Letra e cifra** acompanha a reprodução e permite corrigir texto e tempos. O processamento da letra começa depois da entrega do resultado musical e não bloqueia os áudios concluídos.
+- O botão **Gerar letra com IA** reutiliza a voz de uma tarefa concluída. Cancelar ou repetir a letra preserva as faixas, cifras, notas e controles do mixer. O worker persiste e recupera essa fila separadamente. Letras editadas não são sobrescritas por consultas repetidas da mesma revisão.
+- Cifras estimadas no acompanhamento separado (`guitar`, `piano`, `other`), com menor peso para `other` quando há instrumentos harmônicos dedicados; a voz e a bateria não entram nesse mix. A aba **Acordes** permite corrigir as estimativas.
 - Fila SQLite persistente, worker separado da API, progresso por etapa, cancelamento e detecção de worker interrompido.
 - Uma retentativa automática se um subprocesso receber SIGTERM com o worker ainda ativo. Reiniciar o worker recoloca a tarefa na fila; cancelamentos explícitos são preservados. O botão **Retomar processamento** reutiliza o upload de tarefas que falharam.
 - Separação com janelas de 4 segundos por padrão, retentativa automática com janelas menores quando há falta de memória e diagnóstico copiável na tela para falhas de memória, rede/modelos, dependências e disco. As janelas não limitam a duração da música.
@@ -81,7 +84,11 @@ Na raiz do repositório:
 git pull --ff-only && python3 scripts/restart.py
 ```
 
-Esse comando recompila a interface, encerra somente os processos RiffSync deste checkout, inicia API e worker e verifica o endpoint de saúde. API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Após a confirmação, recarregue a aba do aplicativo.
+Esse comando instala o reconhecimento de letra se estiver ausente, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.3.0**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
+
+API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Não apague os dados do site no navegador: os projetos e a chave de acesso às tarefas são armazenados ali.
+
+O Whisper baixa seus pesos no primeiro uso e os conserva em `data/models/whisper`. `LYRICS_MODEL` escolhe o modelo (padrão `small`) e `LYRICS_LANGUAGE` pode fixar `pt`, `en` ou outro idioma aceito; vazio ativa detecção automática. Nenhuma chave de API paga é necessária. Canto, vazamentos da separação e ruído podem causar omissões ou palavras incorretas; o reconhecimento não consulta um catálogo de letras oficiais.
 
 Para uma tarefa que já falhou, clique em **Retomar processamento**: o servidor reutiliza o arquivo enviado e reinicia o processamento, sem novo upload. Não há checkpoint dentro do modelo. Uma queda abrupta do worker permite até duas recuperações automáticas; interrupções repetidas exigem retomada manual. O código `−15` identifica SIGTERM, mas não informa quem enviou o sinal. Encerrar o Codespace também encerra seus processos.
 
