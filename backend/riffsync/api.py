@@ -19,7 +19,7 @@ async def lifespan(_app):
     db.init()
     yield
 
-app = FastAPI(title="RiffSync API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="RiffSync API", version="0.3.1", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=config.ORIGINS, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Workspace-Key", "Range", "If-Range"], expose_headers=["Content-Range", "Content-Length", "Accept-Ranges", "ETag"])
 
 def owner(x_workspace_key: str = Header(default="")):
@@ -38,13 +38,14 @@ def owned(job_id, key):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "worker_online": db.worker_online(),
-            "version": "0.3.0", "build": frontend_version(),
+            "version": "0.3.1", "build": frontend_version(),
             "separation_available": bool(importlib.util.find_spec("demucs")) and bool(shutil.which("ffmpeg")),
             "transcription_available": bool(importlib.util.find_spec("basic_pitch")),
             "lyrics_available": bool(importlib.util.find_spec('faster_whisper')), "device": config.DEVICE}
 
 @app.post("/api/jobs", status_code=202)
-async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6s"), transcribe: bool = Form(True), lyrics: bool = Form(True), key=Depends(owner)):
+async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6s"), transcribe: bool = Form(True), lyrics: bool = Form(True), lyrics_language: str = Form(''), key=Depends(owner)):
+    if lyrics_language and not re.fullmatch('[a-z]{2}',lyrics_language): raise HTTPException(422,'Idioma inválido.')
     if model not in config.MODELS:
         raise HTTPException(422, "Modelo de separação inválido.")
     if not db.worker_online() or not importlib.util.find_spec("demucs"):
@@ -71,7 +72,7 @@ async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6
         if not size:
             raise HTTPException(422, "O arquivo está vazio.")
         target.rename(directory / f"input{extension}")
-        db.update(job["id"], status="queued", stage="Na fila de processamento")
+        db.update(job["id"], status="queued", stage="Na fila de processamento", lyrics_language=lyrics_language,lyrics_source='original')
     except BaseException:
         db.update(job["id"], status="cancelled", stage="Upload interrompido")
         shutil.rmtree(directory, ignore_errors=True)
@@ -119,15 +120,56 @@ def retry_job(job_id: str, key=Depends(owner)):
         raise HTTPException(429, str(error)) from error
 
 @app.post('/api/jobs/{job_id}/lyrics', status_code=202)
-def recognize_lyrics(job_id: str, key=Depends(owner)):
+def recognize_lyrics(job_id: str, language: str = Form(''), source: str = Form('original'), key=Depends(owner)):
     job=owned(job_id,key)
     if job['status'] != 'completed': raise HTTPException(409,'Aguarde a separação dos instrumentos terminar.')
     if not (config.DATA/job_id/'output'/'vocals.wav').is_file():
         raise HTTPException(409,'A faixa de voz separada não está mais disponível no servidor.')
     if not importlib.util.find_spec('faster_whisper'):
         raise HTTPException(503,'O reconhecimento da letra ainda não foi instalado no servidor. Atualize pelo script de reinício.')
-    try: return db.public(db.request_lyrics(job_id))
+    if language and not re.fullmatch('[a-z]{2}',language): raise HTTPException(422,'Idioma inválido.')
+    if source not in {'original','vocals'}: raise HTTPException(422,'Fonte de áudio inválida.')
+    try: return db.public(db.request_lyrics(job_id,language,source))
     except ValueError as error: raise HTTPException(429,str(error)) from error
+
+@app.post('/api/jobs/{job_id}/revise', status_code=202)
+def revise_job(job_id: str, operation: str = Form('chords'), key=Depends(owner)):
+    parent = owned(job_id, key)
+    if parent['status'] != 'completed' or not parent.get('result'):
+        raise HTTPException(409, 'Aguarde as faixas ficarem prontas.')
+    if operation not in {'chords', 'vocals_drums'}:
+        raise HTTPException(422, 'Revisão inválida.')
+    if not db.worker_online(): raise HTTPException(503, 'O worker de processamento está indisponível.')
+    source = config.DATA/job_id
+    inputs = list(source.glob('input.*'))
+    if operation == 'vocals_drums' and not inputs:
+        raise HTTPException(409, 'O áudio original não está mais no servidor. Carregue a música novamente para refinar.')
+    for track in parent['result']['tracks']:
+        name=track['file']
+        if Path(name).name != name or not (source/'output'/name).is_file():
+            raise HTTPException(409, 'Uma das faixas não está mais no servidor. Recupere o resultado antes de revisar.')
+    try: job=db.create(key,parent['filename'],parent['model'],False,source_job=job_id,operation=operation)
+    except ValueError as error: raise HTTPException(429,str(error)) from error
+    directory=config.DATA/job['id']
+    if job.get('_existing'): return db.public(db.get(job['id']))
+    if directory.exists(): return db.public(db.get(job['id']))
+    try:
+        output=directory/'output'; output.mkdir(parents=True)
+        def link_or_copy(src, dst):
+            try: os.link(src,dst)
+            except OSError: shutil.copy2(src,dst)
+        for track in parent['result']['tracks']:
+            link_or_copy(source/'output'/track['file'],output/track['file'])
+        if inputs: link_or_copy(inputs[0],directory/inputs[0].name)
+        (directory/'revision.json').write_text(json.dumps(parent['result']),encoding='utf-8')
+        # Refresh parent retention; its audio remains an independent comparison result.
+        db.update(job_id)
+        db.update(job['id'],status='queued',stage='Cifra na fila' if operation=='chords' else 'Voz e bateria na fila de refinamento')
+    except BaseException:
+        db.update(job['id'],status='failed',error='Não foi possível preparar a revisão; o resultado anterior foi preservado.')
+        shutil.rmtree(directory,ignore_errors=True)
+        raise
+    return db.public(db.get(job['id']))
 
 @app.post('/api/jobs/{job_id}/lyrics/cancel')
 def cancel_lyrics(job_id: str, key=Depends(owner)):

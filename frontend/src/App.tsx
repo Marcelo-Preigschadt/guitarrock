@@ -38,6 +38,7 @@ import {
   artifact,
   cancelJob,
   retryJob,
+  reviseJob,
   requestLyrics,
   cancelLyrics,
   createJob,
@@ -64,6 +65,8 @@ import { ArrangementView } from "./components/ArrangementView";
 import { measureGrid, normalizeNote } from "./arrangement";
 import { mergeLyrics } from "./lyrics";
 import { LyricsView } from "./components/LyricsView";
+import { CifraView } from "./components/CifraView";
+import { projectChords } from "./chords";
 import { APP_VERSION, APP_REVISION } from "./version";
 
 type Panel = "none" | "settings" | "import" | "projects" | "help";
@@ -81,7 +84,7 @@ export default function App() {
   const [busy, setBusy] = useState("");
   const [saved, setSaved] = useState(false);
   const [panel, setPanel] = useState<Panel>("none");
-  const [tab, setTab] = useState<"text" | "arrangement">("arrangement");
+  const [tab, setTab] = useState<"text" | "arrangement" | "chords">("chords");
   const [editing, setEditing] = useState(false);
   const [selectedCue, setSelectedCue] = useState("");
   const [text, setText] = useState("");
@@ -103,6 +106,7 @@ export default function App() {
   const [model, setModel] = useState("htdemucs_6s");
   const [transcribe, setTranscribe] = useState(true);
   const [recognizeLyrics, setRecognizeLyrics] = useState(true);
+  const [lyricsLanguage, setLyricsLanguage] = useState("");
   const [manualText, setManualText] = useState(false);
   const [lyricsRequest, setLyricsRequest] = useState(false);
   const [toast, setToast] = useState("");
@@ -275,7 +279,7 @@ export default function App() {
           "",
       );
       setSelectedCue(session.project.cues[0]?.id || "");
-      setTab("arrangement");
+      setTab("chords");
       setPanel("none");
       setEditing(false);
     } catch (e) {
@@ -435,7 +439,7 @@ export default function App() {
           merged.tracks.find((t) => t.kind === "guitar")?.id ||
             merged.tracks[0].id,
         );
-        setTab("arrangement");
+        setTab("chords");
         setEditing(false);
         const stream = preferMediaPlayback(
           merged.duration,
@@ -498,6 +502,14 @@ export default function App() {
           },
         });
         if (!valid()) return;
+        if (result.ready === result.total) {
+          const retained = new Set(merged.tracks.map((track) => track.id));
+          setFiles((current) =>
+            Object.fromEntries(
+              Object.entries(current).filter(([id]) => retained.has(id)),
+            ),
+          );
+        }
         update((current) =>
           current.id === projectId
             ? { ...current, jobApplied: result.ready === result.total }
@@ -647,6 +659,7 @@ export default function App() {
         model,
         transcribe,
         recognizeLyrics,
+        lyricsLanguage,
       );
       setJob(created);
       update((current) =>
@@ -672,15 +685,77 @@ export default function App() {
       setBusy("");
     }
   };
+  const revise = async (operation: "chords" | "vocals_drums") => {
+    const p = projectRef.current;
+    if (!p?.jobId || busy || jobActive || receiving) return;
+    setBusy(
+      operation === "chords"
+        ? "Preparando a cifra com as faixas existentes…"
+        : "Preparando o refinamento de voz e bateria…",
+    );
+    try {
+      const created = await reviseJob(p.jobBase || "", p.jobId, operation);
+      if (projectRef.current?.id !== p.id) return;
+      if (operation === "vocals_drums") {
+        const backup = {
+          ...p,
+          id: crypto.randomUUID(),
+          title: `${p.title} · separação anterior`,
+          updated: Date.now(),
+        };
+        try {
+          await saveSession({
+            project: backup,
+            files: { ...filesRef.current },
+            score,
+          });
+          void listSessions().then(setProjects);
+        } catch {
+          notify(
+            "A cópia local não pôde ser salva; a tarefa anterior continua preservada no servidor.",
+          );
+        }
+      }
+      const cached: Record<string, Blob> = {};
+      for (const track of p.tracks) {
+        if (
+          track.kind === "original" ||
+          (operation === "vocals_drums" &&
+            ["vocals", "drums"].includes(track.kind))
+        )
+          continue;
+        if (filesRef.current[track.id])
+          cached[`${created.id}-${track.kind}`] = filesRef.current[track.id];
+      }
+      setFiles((current) => ({ ...current, ...cached }));
+      setJob(created);
+      update((current) => ({
+        ...current,
+        jobId: created.id,
+        jobApplied: false,
+        lyricsPending: false,
+      }));
+      setTab("chords");
+      setJobRevision((value) => value + 1);
+    } catch (error) {
+      notify(message(error));
+    } finally {
+      setBusy("");
+    }
+  };
   const generateLyrics = async () => {
     const p = projectRef.current;
     if (!p?.jobId || lyricsRequest) return;
     setLyricsRequest(true);
     try {
-      const status = await requestLyrics(p.jobBase || "", p.jobId);
+      const status = await requestLyrics(
+        p.jobBase || "",
+        p.jobId,
+        lyricsLanguage,
+      );
       if (projectRef.current?.id !== p.id) return;
       setJob(status);
-      update((current) => mergeLyrics(current, status));
+      update((current) => ({ ...mergeLyrics(current, status), lyrics: [] }));
       setManualText(false);
       setTab("text");
       setJobRevision((value) => value + 1);
@@ -797,6 +872,14 @@ export default function App() {
       setTime(0);
     }
   };
+  const harmony = projectChords(project);
+  const harmonyCues: Cue[] = harmony.map((chord, index) => ({
+    id: `harmony-${index}`,
+    text: chord.label,
+    start: chord.start,
+    end: chord.end,
+    source: "ai",
+  }));
   const hasStems =
     (project?.tracks.filter((t) => t.kind !== "original").length || 0) > 0;
   const preferredWave =
@@ -1141,6 +1224,7 @@ export default function App() {
                                     cues: project.cues,
                                     lyrics: project.lyrics,
                                     lyricsLanguage: project.lyricsLanguage,
+                                    harmony: project.harmony,
                                   },
                                   null,
                                   2,
@@ -1301,6 +1385,21 @@ export default function App() {
                         Copiar diagnóstico
                       </button>
                     </details>
+                  )}
+                  {job.status === "failed" && job.source_job && (
+                    <button
+                      className="button secondary compact"
+                      onClick={() => {
+                        update((p) => ({
+                          ...p,
+                          jobId: job.source_job,
+                          jobApplied: false,
+                        }));
+                        setJobRevision((value) => value + 1);
+                      }}
+                    >
+                      Voltar ao resultado anterior
+                    </button>
                   )}
                   {job.status === "failed" && (
                     <button
@@ -1488,6 +1587,21 @@ export default function App() {
                 a IA para separar os instrumentos.
               </p>
             )}
+            {hasStems && project?.jobId && (
+              <div className="refine-actions">
+                <button
+                  className="button secondary compact"
+                  disabled={!!busy || jobActive || receiving}
+                  onClick={() => void revise("vocals_drums")}
+                >
+                  <Sparkles size={15} /> Refinar voz e bateria
+                </button>
+                <span>
+                  Processa dois modelos específicos; mantém baixo, guitarra e
+                  demais faixas. A versão anterior fica em Meus projetos.
+                </span>
+              </div>
+            )}
             {hasStems && (
               <div className="mixer-legend">
                 <span>
@@ -1550,6 +1664,14 @@ export default function App() {
                 >
                   <button
                     role="tab"
+                    aria-selected={tab === "chords"}
+                    className={tab === "chords" ? "active" : ""}
+                    onClick={() => setTab("chords")}
+                  >
+                    <Guitar size={15} /> Cifra e braço
+                  </button>
+                  <button
+                    role="tab"
                     aria-selected={tab === "arrangement"}
                     className={tab === "arrangement" ? "active" : ""}
                     onClick={() => setTab("arrangement")}
@@ -1603,17 +1725,20 @@ export default function App() {
                       </span>
                     ) : job?.lyrics_state === "no_speech" ? (
                       <span>
-                        Nenhuma letra foi reconhecida na faixa de voz. Você pode
-                        importar ou corrigir o texto.
+                        Não foi possível reconhecer a letra com confiança. Fixe
+                        o idioma e tente novamente ou importe o texto.
                       </span>
                     ) : project.lyrics?.length ? (
                       <span>
-                        Letra da IA ·{" "}
-                        {project.lyricsLanguage || "idioma automático"}
+                        Transcrição estimada ·{" "}
+                        {project.lyricsLanguage || "idioma automático"} ·{" "}
+                        {project.lyricsSource === "original"
+                          ? "áudio original"
+                          : "versão anterior: confira a letra"}
                       </span>
                     ) : (
                       <span>
-                        A letra é reconhecida na faixa de voz; a cifra, no
+                        A letra é reconhecida no áudio original; os acordes, no
                         acompanhamento.
                       </span>
                     )}
@@ -1634,6 +1759,19 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                  <label className="lyric-language">
+                    Idioma{" "}
+                    <select
+                      aria-label="Idioma da letra"
+                      value={lyricsLanguage}
+                      onChange={(e) => setLyricsLanguage(e.target.value)}
+                    >
+                      <option value="">Automático</option>
+                      <option value="pt">Português</option>
+                      <option value="en">Inglês</option>
+                      <option value="es">Espanhol</option>
+                    </select>
+                  </label>
                   {project.lyricsPending ? (
                     <button
                       className="button ghost compact"
@@ -1655,16 +1793,36 @@ export default function App() {
                       {lyricsRequest
                         ? "Solicitando…"
                         : project.lyrics?.length
-                          ? "Reconhecer letra novamente"
+                          ? "Refazer letra no áudio original"
                           : "Gerar letra com IA"}
                     </button>
                   ) : null}
                 </div>
               )}
-              {tab === "arrangement" ? (
+              {tab === "chords" ? (
+                <CifraView
+                  project={project}
+                  chords={harmony}
+                  time={time}
+                  selectedTrack={selectedTrack}
+                  onTrack={setSelectedTrack}
+                  onSeek={seek}
+                  onGenerate={() => void revise("chords")}
+                  onLyric={() => setTab("text")}
+                  busy={!!busy || jobActive || receiving}
+                  onChange={(index, label) =>
+                    update((p) => ({
+                      ...p,
+                      harmony: projectChords(p).map((chord, i) =>
+                        i === index ? { ...chord, label } : chord,
+                      ),
+                    }))
+                  }
+                />
+              ) : tab === "arrangement" ? (
                 <ArrangementView
                   tracks={project?.tracks || []}
-                  cues={project?.cues || []}
+                  cues={harmonyCues}
                   timing={project?.timing}
                   bpm={project?.bpm}
                   duration={project?.duration || 0}
@@ -1703,7 +1861,8 @@ export default function App() {
               ) : project?.lyrics?.length && !manualText ? (
                 <LyricsView
                   lines={project.lyrics}
-                  cues={project.cues}
+                  review={project.lyricsReview}
+                  cues={harmonyCues}
                   time={time}
                   follow={autoFollow}
                   editing={editing}
@@ -2038,9 +2197,22 @@ export default function App() {
                   Reconhecer e sincronizar a letra com IA
                 </label>
                 <p className="field-help">
-                  Usa a voz separada. O modelo é baixado no primeiro uso; depois
-                  fica guardado no servidor.
+                  Usa o áudio original com Whisper large-v3-turbo. O modelo é
+                  baixado no primeiro uso. A letra é uma estimativa editável.
                 </p>
+                <label className="field-label">
+                  Idioma da música
+                  <select
+                    aria-label="Idioma da música"
+                    value={lyricsLanguage}
+                    onChange={(e) => setLyricsLanguage(e.target.value)}
+                  >
+                    <option value="">Automático</option>
+                    <option value="pt">Português</option>
+                    <option value="en">Inglês</option>
+                    <option value="es">Espanhol</option>
+                  </select>
+                </label>
                 <p className="field-help">
                   Aplicativo {APP_VERSION} · revisão {APP_REVISION}
                   {connection?.build

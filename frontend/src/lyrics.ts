@@ -6,7 +6,10 @@ export function mergeLyrics(project: Project, job: Job): Project {
     !["failed", "cancelled"].includes(job.status) &&
     ["waiting", "queued", "running"].includes(job.lyrics_state || "");
   const revision = job.result?.lyrics_revision;
-  const changed = revision && revision !== project.lyricsRevision;
+  const changed =
+    ["ready", "no_speech"].includes(job.lyrics_state || "") &&
+    revision &&
+    revision !== project.lyricsRevision;
   return {
     ...project,
     lyricsPending: pending,
@@ -14,6 +17,8 @@ export function mergeLyrics(project: Project, job: Job): Project {
       ? {
           lyrics: job.result.lyrics,
           lyricsLanguage: job.result.lyrics_language,
+          lyricsSource: job.result.lyrics_source,
+          lyricsReview: job.result.lyrics_review,
           lyricsRevision: revision,
         }
       : {}),

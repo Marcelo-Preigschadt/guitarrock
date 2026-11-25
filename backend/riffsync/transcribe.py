@@ -18,6 +18,9 @@ def estimate_chords(path):
     bounds = np.unique(np.concatenate(([0.0], beats[::2], [duration]))) if len(beats) >= 4 else np.append(np.arange(0, duration, 0.8), duration)
     chroma = librosa.feature.chroma_stft(y=y, sr=sr, hop_length=512, n_fft=4096)
     rms = librosa.feature.rms(y=y, hop_length=512)[0]
+    # Isolated accompaniment can be much quieter than the original master.
+    # A fixed .003 gate discarded valid chords on quiet separated stems.
+    energy_gate=max(1e-6,float(np.quantile(rms,.8))*.04)
     templates, labels = [], []
     names = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
     for root in range(12):
@@ -48,7 +51,7 @@ def estimate_chords(path):
     path_states.reverse()
     chords = []
     for i, state in enumerate(path_states):
-        label = labels[state] if scores[i, state] > 0.66 and energy[i] > 0.003 else "N"
+        label = labels[state] if scores[i, state] > 0.66 and energy[i] > energy_gate else "N"
         if chords and chords[-1]["label"] == label:
             chords[-1]["end"] = round(float(bounds[i + 1]), 3)
         else:
@@ -84,19 +87,19 @@ def transcribe_track(file, model):
 
 def harmonic_source(output, destination):
     """Prefer the separated accompaniment over vocals/drums for harmony analysis."""
-    files = [output/f'{kind}.wav' for kind in ('guitar','piano','other') if (output/f'{kind}.wav').is_file()]
+    files = [output/f'{kind}.wav' for kind in ('guitar','piano','other','bass') if (output/f'{kind}.wav').is_file()]
     if not files:
         return output.parent/'source.wav'
     args = ['ffmpeg','-nostdin','-v','error','-y']
     for file in files: args += ['-i',str(file)]
-    weights = ['0.45' if file.stem == 'other' and len(files)>1 else '1' for file in files]
+    weights = ['0.65' if file.stem=='bass' else '0.45' if file.stem == 'other' and len(files)>1 else '1' for file in files]
     inputs = ''.join(f'[{i}:a]' for i in range(len(files)))
     graph = inputs+f"amix=inputs={len(files)}:duration=longest:weights='{' '.join(weights)}':normalize=1"
     subprocess.run(args+['-filter_complex',graph,'-ac','1','-ar','22050',str(destination)],check=True,capture_output=True,timeout=120)
     return destination
 
 
-def run(directory):
+def run(directory, notes=True):
     import importlib.util
     output = Path(directory)
     result = {"bpm": None, "chords": [], "notes": {}, "timing": None, "warnings": []}
@@ -110,6 +113,9 @@ def run(directory):
             result["bpm"], result["chords"], result["timing"] = estimate_chords(source)
     except Exception as error:
         result["warnings"].append(f"Não foi possível estimar as cifras ({type(error).__name__}). Importe seu texto para sincronizar.")
+    if not notes:
+        (output/'transcription.json').write_text(json.dumps(result),encoding='utf-8')
+        return
     if importlib.util.find_spec("basic_pitch"):
         try:
             from basic_pitch import build_icassp_2022_model_path, FilenameSuffix
@@ -141,4 +147,4 @@ def run(directory):
     (output / "transcription.json").write_text(json.dumps(result), encoding="utf-8")
 
 if __name__ == "__main__":
-    run(sys.argv[1])
+    run(sys.argv[1], notes='--chords-only' not in sys.argv)

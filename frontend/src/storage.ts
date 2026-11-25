@@ -141,6 +141,20 @@ export async function importSession(file: File): Promise<Session> {
       ))
   )
     throw new Error("Letra sincronizada inválida.");
+  if (
+    p.harmony !== undefined &&
+    (!Array.isArray(p.harmony) ||
+      p.harmony.length > 10000 ||
+      !p.harmony.every(
+        (chord: { start: number; end: number; label: string }) =>
+          Number.isFinite(chord.start) &&
+          Number.isFinite(chord.end) &&
+          chord.start >= 0 &&
+          chord.end > chord.start &&
+          typeof chord.label === "string",
+      ))
+  )
+    throw new Error("Cifra sincronizada inválida.");
   p.lyricsPending = false;
   const files: Record<string, Blob> = {};
   for (const track of p.tracks) {

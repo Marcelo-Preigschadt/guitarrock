@@ -11,6 +11,7 @@ export function LyricsView({
   editing,
   onSeek,
   onChange,
+  review,
 }: {
   lines: Lyric[];
   cues: Cue[];
@@ -19,6 +20,7 @@ export function LyricsView({
   editing: boolean;
   onSeek: (time: number) => void;
   onChange: (index: number, line: Lyric) => void;
+  review?: { start: number; end: number; reason: string }[];
 }) {
   const active = lines.findIndex(
     (line) => time >= line.start && time < line.end,
@@ -31,9 +33,21 @@ export function LyricsView({
   return (
     <div className="lyrics-display">
       <p className="lyrics-caption">
-        Letra reconhecida na voz isolada · acordes estimados no acompanhamento.
-        Clique no horário para ouvir.
+        Transcrição estimada do áudio · confira as palavras ouvindo a música.
+        Acordes estimados no acompanhamento. Clique no horário para ouvir.
       </p>
+      {!!review?.length && (
+        <div className="lyrics-review" role="status">
+          {review.map((item, index) => (
+            <p key={index}>
+              <button className="cue-time" onClick={() => onSeek(item.start)}>
+                {formatTime(item.start, true)}
+              </button>{" "}
+              {item.reason}. Ouça e complete esse trecho manualmente.
+            </p>
+          ))}
+        </div>
+      )}
       {lines.map((line, index) => (
         <div
           key={index}

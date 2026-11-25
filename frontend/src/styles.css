@@ -3223,3 +3223,154 @@ kbd {
     font-size: 17px;
   }
 }
+
+.cifra-view {
+  padding: 22px;
+}
+.cifra-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.cifra-heading h3 {
+  margin: 0 0 8px;
+}
+.cifra-heading p {
+  margin: 0;
+  color: #91a1b0;
+  font-size: 14px;
+}
+.cifra-current {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 20px 0;
+}
+.current-diagram {
+  flex: 0 0 160px;
+  text-align: center;
+  color: #91a1b0;
+  font-size: 14px;
+}
+.current-diagram svg {
+  width: 160px;
+  height: 175px;
+}
+.diagram-title {
+  font-size: 19px;
+  font-weight: 700;
+  fill: #c5f16d;
+}
+.cifra-neck {
+  min-width: 0;
+  flex: 1;
+}
+.cifra-neck > label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #91a1b0;
+  font-size: 14px;
+}
+.cifra-neck select {
+  width: auto;
+  min-width: 140px;
+}
+.fretboard-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+.fretboard-controls strong {
+  font-size: 14px;
+}
+.fretboard-scroll {
+  overflow-x: auto;
+}
+.fretboard-scroll svg {
+  width: 100%;
+  min-width: 620px;
+}
+.chord-sequence {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.chord-sequence > div {
+  border: 1px solid #354047;
+  border-radius: 8px;
+  background: #121719;
+  overflow: hidden;
+}
+.chord-sequence > div.active {
+  border-color: #c5f16d;
+  background: #c5f16d12;
+}
+.chord-sequence button {
+  width: 100%;
+  border: 0;
+  padding: 9px;
+  background: transparent;
+  color: #91a1b0;
+  cursor: pointer;
+  font-size: 12px;
+}
+.chord-sequence input {
+  width: 100%;
+  text-align: center;
+  border: 0;
+  background: transparent;
+  color: #c5f16d;
+  font-size: 22px;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 6px 0 12px;
+}
+.cifra-empty {
+  padding: 20px 0;
+  color: #91a1b0;
+}
+.refine-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 14px 0;
+}
+.refine-actions span {
+  color: #91a1b0;
+  font-size: 13px;
+}
+@media (max-width: 700px) {
+  .cifra-view {
+    padding: 15px;
+  }
+  .cifra-current {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .current-diagram {
+    flex-basis: auto;
+  }
+  .fretboard-controls {
+    flex-wrap: wrap;
+  }
+  .refine-actions {
+    align-items: start;
+    flex-direction: column;
+  }
+}
+
+.lyric-language {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.lyric-language select {
+  width: auto;
+  max-width: 150px;
+}

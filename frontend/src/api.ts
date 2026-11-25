@@ -52,12 +52,14 @@ export async function createJob(
   model: string,
   transcribe: boolean,
   lyrics = true,
+  lyricsLanguage = "",
 ) {
   const body = new FormData();
   body.append("file", file, name);
   body.append("model", model);
   body.append("transcribe", String(transcribe));
   body.append("lyrics", String(lyrics));
+  body.append("lyrics_language", lyricsLanguage);
   return request<Job>(base, "/jobs", {
     method: "POST",
     body,
@@ -70,10 +72,23 @@ export const cancelJob = (base: string, id: string) =>
   request<Job>(base, `/jobs/${id}/cancel`, { method: "POST" });
 export const retryJob = (base: string, id: string) =>
   request<Job>(base, `/jobs/${id}/retry`, { method: "POST" });
-export const requestLyrics = (base: string, id: string) =>
-  request<Job>(base, `/jobs/${id}/lyrics`, { method: "POST" });
+export const requestLyrics = (base: string, id: string, language = "") => {
+  const body = new FormData();
+  body.append("language", language);
+  body.append("source", "original");
+  return request<Job>(base, `/jobs/${id}/lyrics`, { method: "POST", body });
+};
 export const cancelLyrics = (base: string, id: string) =>
   request<Job>(base, `/jobs/${id}/lyrics/cancel`, { method: "POST" });
+export const reviseJob = (
+  base: string,
+  id: string,
+  operation: "chords" | "vocals_drums",
+) => {
+  const body = new FormData();
+  body.append("operation", operation);
+  return request<Job>(base, `/jobs/${id}/revise`, { method: "POST", body });
+};
 type PartialAudio = {
   parts: Blob[];
   received: number;

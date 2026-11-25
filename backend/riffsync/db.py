@@ -36,14 +36,18 @@ def heartbeat(worker_id):
     with connect() as c:
         c.execute("INSERT OR REPLACE INTO workers VALUES (?, ?)", (worker_id, time.time()))
 
-def create(owner, filename, model, transcribe, lyrics=False):
+def create(owner, filename, model, transcribe, lyrics=False, source_job=None, operation=None):
     now, job_id = time.time(), uuid.uuid4().hex
     payload = {"id": job_id, "filename": filename, "model": model, "transcribe": transcribe,
                "status": "uploading", "stage": "Recebendo o áudio", "progress": 0,
                "created": now, "updated": now, "warnings": [], "result": None, "error": None,
-               'recognize_lyrics': lyrics, 'lyrics_state': 'waiting' if lyrics else 'not_requested'}
+               'recognize_lyrics': lyrics, 'lyrics_state': 'waiting' if lyrics else 'not_requested',
+               'source_job':source_job, 'operation':operation}
     with connect() as c:
         c.execute("BEGIN IMMEDIATE")
+        if source_job:
+            existing = c.execute("SELECT payload FROM jobs WHERE owner=? AND status IN ('uploading','queued','running') AND json_extract(payload,'$.source_job')=? AND json_extract(payload,'$.operation')=? LIMIT 1", (owner,source_job,operation)).fetchone()
+            if existing: return {**json.loads(existing[0]),'_existing':True}
         count = c.execute("SELECT COUNT(*) FROM jobs WHERE owner=? AND status IN ('uploading','queued','running')", (owner,)).fetchone()[0]
         total = c.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('uploading','queued','running')").fetchone()[0]
         if count >= 2 or total >= 32:
@@ -83,7 +87,7 @@ def claim(worker_id):
         c.execute("UPDATE jobs SET status='running', updated=?, payload=? WHERE id=?", (payload["updated"], json.dumps(payload), row["id"]))
         return payload
 
-def request_lyrics(job_id):
+def request_lyrics(job_id, language='', source='original'):
     with connect() as c:
         c.execute('BEGIN IMMEDIATE')
         row = c.execute('SELECT owner,payload FROM jobs WHERE id=?',(job_id,)).fetchone()
@@ -93,7 +97,8 @@ def request_lyrics(job_id):
         if payload.get('lyrics_state') in {'queued','running'}: return payload
         count=c.execute("SELECT COUNT(*) FROM jobs WHERE owner=? AND json_extract(payload,'$.lyrics_state') IN ('queued','running')",(row['owner'],)).fetchone()[0]
         if count >= 2: raise ValueError('Aguarde a letra de outra música terminar.')
-        payload.update(lyrics_state='queued',lyrics_progress=0,lyrics_error=None,lyrics_recoveries=0,lyrics_signal_retries=0,lyrics_stage='Letra na fila',updated=time.time())
+        payload.update(lyrics_state='queued',lyrics_progress=0,lyrics_error=None,lyrics_recoveries=0,lyrics_signal_retries=0,lyrics_stage='Letra na fila',
+                       lyrics_language=language,lyrics_source=source,updated=time.time())
         c.execute('UPDATE jobs SET updated=?,payload=? WHERE id=?',(payload['updated'],json.dumps(payload),job_id))
     return payload
 

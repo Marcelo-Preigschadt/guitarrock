@@ -17,13 +17,37 @@ export function mergeResult(project: Project, job: Job): Project {
     duration: job.result.duration,
     bpm: job.result.bpm,
     timing: job.result.timing,
+    harmony:
+      job.operation === "vocals_drums" && project.harmony?.length
+        ? project.harmony
+        : job.result.chords.filter((chord) => chord.label !== "N"),
     tracks: [
       ...job.result.tracks.map((t) => ({
+        ...(job.operation
+          ? project.tracks.find((old) => old.kind === t.kind)
+          : undefined),
         ...makeTrack(t.kind, `${job.id}-${t.id}`),
         name: t.name,
         volume: 1,
+        ...(job.operation
+          ? (() => {
+              const old = project.tracks.find((track) => track.kind === t.kind);
+              return old
+                ? {
+                    volume: old.volume,
+                    muted: old.muted,
+                    solo: old.solo,
+                    visible: old.visible,
+                  }
+                : {};
+            })()
+          : {}),
         filename: t.file,
-        notes: t.notes?.map(normalizeNote),
+        notes: (job.operation
+          ? (project.tracks.find((old) => old.kind === t.kind)?.notes ??
+            t.notes)
+          : t.notes
+        )?.map(normalizeNote),
         waveform: t.waveform,
         loadState: "pending" as const,
       })),

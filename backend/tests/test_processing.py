@@ -58,3 +58,20 @@ class ProcessingTests(unittest.TestCase):
             self.assertEqual(len(result['result']['tracks']), 6)
 
 if __name__ == '__main__': unittest.main()
+
+class HarmonyLevelTests(unittest.TestCase):
+    def test_quiet_accompaniment_keeps_the_same_em_and_c_chords(self):
+        import importlib.util
+        if not importlib.util.find_spec('librosa'): self.skipTest('Audio analysis dependencies are not installed')
+        import numpy as np
+        import soundfile as sf
+        from riffsync.transcribe import estimate_chords
+        sr=22050;t=np.arange(sr*8)/sr;y=np.zeros_like(t)
+        for start,frequencies in [(0,[164.8138,195.9977,246.9417]),(4,[130.8128,164.8138,195.9977])]:
+            for frequency in frequencies: y+=np.sin(2*np.pi*frequency*t)*((t>=start)&(t<start+4))
+        with tempfile.TemporaryDirectory() as temp:
+            labels=[]
+            for index,gain in enumerate((.12,.00012)):
+                file=Path(temp)/f'harmony-{index}.wav';sf.write(file,y*gain,sr,subtype='FLOAT')
+                labels.append([chord['label'] for chord in estimate_chords(file)[1]])
+            self.assertEqual(labels,[['Em','C'],['Em','C']])

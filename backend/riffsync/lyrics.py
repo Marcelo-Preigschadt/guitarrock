@@ -26,20 +26,29 @@ def timed_lines(segments):
     return lines
 
 
-def recognize(source, destination):
+def recognize(source, destination, language=""):
+    language = language or config.LYRICS_LANGUAGE
     from faster_whisper import WhisperModel
     cache = config.DATA/'models'/'whisper'
     print('Preparando Whisper '+config.LYRICS_MODEL+'; os pesos são baixados somente no primeiro uso.', flush=True)
     model = WhisperModel(config.LYRICS_MODEL, device='cpu', compute_type='int8', cpu_threads=2,
                          num_workers=1, download_root=str(cache))
-    segments, info = model.transcribe(str(source), language=config.LYRICS_LANGUAGE or None,
+    segments, info = model.transcribe(str(source), language=language or None,
         beam_size=5, word_timestamps=True, vad_filter=False, condition_on_previous_text=False,
         no_speech_threshold=.6)
     lines = timed_lines(segments)
+    accepted, review = [], []
+    for line in lines:
+        words=line.get('words') or []
+        confidence=sum(word['confidence'] for word in words)/len(words) if words else 0
+        if confidence < .55:
+            review.append({'start':line['start'],'end':line['end'],'reason':'Reconhecimento com baixa confiança; texto não exibido'})
+        else: accepted.append(line)
+    lines=accepted
     result = {'lyrics':lines, 'language':info.language, 'model':config.LYRICS_MODEL,
-              'status':'ready' if lines else 'no_speech'}
+              'status':'ready' if lines else 'no_speech', 'review':review}
     Path(destination).write_text(json.dumps(result,ensure_ascii=False),encoding='utf-8')
 
 
 if __name__ == '__main__':
-    recognize(Path(sys.argv[1]), Path(sys.argv[2]))
+    recognize(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3] if len(sys.argv)>3 else "")

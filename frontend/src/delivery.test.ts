@@ -46,6 +46,25 @@ const job: Job = {
 };
 
 describe("recuperação dos resultados já separados", () => {
+  it("revisar acordes ou voz mantém correções de notas e controles do mixer", () => {
+    const previous = mergeResult(project, job);
+    previous.tracks[0].notes![0].fret = 4;
+    previous.tracks[0].muted = true;
+    previous.harmony = [{ start: 0, end: 2, label: "Dm" }];
+    const refined = mergeResult(previous, {
+      ...job,
+      id: "refined",
+      operation: "vocals_drums",
+    });
+    expect(refined.tracks[0].notes![0].fret).toBe(4);
+    expect(refined.tracks[0].muted).toBe(true);
+    expect(refined.harmony![0].label).toBe("Dm");
+    expect(
+      mergeResult(previous, { ...job, id: "new-chords", operation: "chords" })
+        .harmony![0].label,
+    ).toBe("Em");
+  });
+
   it("mostra cifra, tablatura e compassos antes de baixar qualquer áudio", () => {
     const result = mergeResult(project, job);
     expect(result.tracks).toHaveLength(3);

@@ -45,6 +45,12 @@ describe("letra separada dos acordes e da entrega de áudio", () => {
     };
     expect(mergeLyrics(corrected, job).lyrics?.[0].text).toBe("Correção");
     expect(
+      mergeLyrics(
+        { ...corrected, lyrics: [] },
+        { ...job, lyrics_state: "queued" },
+      ).lyrics,
+    ).toEqual([]);
+    expect(
       mergeLyrics(corrected, {
         ...job,
         result: { ...job.result!, lyrics_revision: "new" },

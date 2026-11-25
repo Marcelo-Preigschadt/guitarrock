@@ -89,7 +89,8 @@ def command(args, job_id, log_path, progress=False):
                             percentages = re.findall(rb'(\d{1,3})%\|', reader.read())
                         if percentages:
                             value = min(100, int(percentages[-1]))
-                            db.update(job_id, progress=10 + int(value * .6), stage='Separando os instrumentos')
+                            settings=progress if isinstance(progress,dict) else {}
+                            db.update(job_id, progress=settings.get('start',10)+int(value*settings.get('span',60)/100), stage=settings.get('stage','Separando os instrumentos'))
                     stop.wait(.25)
                 # Cancellation/shutdown also wins if the child exited between polls.
                 job = check_job(job_id, progress == 'lyrics')
@@ -132,6 +133,8 @@ def duration(file):
     return value
 
 def process(job):
+    if job.get('operation'):
+        return process_revision(job)
     job_id = job["id"]
     directory = config.DATA / job_id
     sources = list(directory.glob("input.*"))
@@ -146,13 +149,13 @@ def process(job):
         # Do not retain a second PyTorch runtime in the supervisor process.
         probe = subprocess.run([sys.executable, "-c", "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')"], capture_output=True, text=True, timeout=60)
         device = "cuda" if probe.returncode == 0 and probe.stdout.strip() == "cuda" else "cpu"
-    # Shorter model windows bound peak RAM; the song retains its full duration.
+    # Retain musical context; short windows are fallback settings, not a song limit.
     segment = int(min(7, max(1, config.SEGMENT_SECONDS)))
     attempts = list(dict.fromkeys([(device, segment), (device, min(2.0, segment)), ("cpu", 1.0)]))
     for attempt, (target_device, target_segment) in enumerate(attempts):
         try:
             command([sys.executable, "-m", "demucs", "-n", job["model"], "-d", target_device,
-                     "--segment", str(int(target_segment)), "--jobs", "0", "--shifts", "1", "--overlap", "0.25",
+                     "--segment", str(int(target_segment)), "--jobs", "0", "--shifts", "1", "--overlap", str(config.SEPARATION_OVERLAP),
                      "--out", str(directory / "separated"), str(directory / "source.wav")], job_id,
                     directory / ("separation.log" if attempt == 0 else f"separation-retry-{attempt}.log"), progress=True)
             break
@@ -184,24 +187,61 @@ def process(job):
     for track in tracks:
         track["notes"] = transcription["notes"].get(track["kind"], [])
     db.update(job_id, status="completed", stage="Pronto para tocar", progress=100,
-              warnings=transcription["warnings"], result={"duration": length, "bpm": transcription["bpm"], "timing": transcription.get("timing"), "tracks": tracks, "chords": transcription["chords"]},
+              warnings=transcription["warnings"], result={"duration": length, "bpm": transcription["bpm"], "timing": transcription.get("timing"), "tracks": tracks, "chords": transcription["chords"],
+              'separation':{'model':job['model'],'segment':target_segment,'overlap':config.SEPARATION_OVERLAP,'shifts':1}},
               lyrics_state='queued' if job.get('recognize_lyrics') else 'not_requested', lyrics_progress=0)
     shutil.rmtree(directory / "separated", ignore_errors=True)
     (directory / "source.wav").unlink(missing_ok=True)
 
+def process_revision(job):
+    """Reuse completed audio; chord recovery never invokes source separation."""
+    directory=config.DATA/job['id']; output=directory/'output'
+    result=json.loads((directory/'revision.json').read_text(encoding='utf-8'))
+    if job['operation']=='vocals_drums':
+        source=next(directory.glob('input.*'))
+        command(['ffmpeg','-nostdin','-v','error','-y','-i',str(source),'-ac','2','-ar','44100',str(directory/'source.wav')],job['id'],directory/'decode.log')
+        device=config.DEVICE
+        if device=='auto':
+            probe=subprocess.run([sys.executable,'-c',"import torch; print('cuda' if torch.cuda.is_available() else 'cpu')"],capture_output=True,text=True,timeout=60)
+            device='cuda' if probe.returncode==0 and probe.stdout.strip()=='cuda' else 'cpu'
+        # Source-specific fine-tuned models from the official htdemucs_ft bag.
+        # Do not run its bass/other models or overwrite guitar/bass/piano outputs.
+        for kind,signature,start in [('vocals','04573f0d',10),('drums','f7e0c4bc',45)]:
+            command([sys.executable,'-m','demucs','-n',signature,'-d',device,'--segment','7','--overlap','0.5','--shifts','1','--jobs','0','--two-stems',kind,'--out',str(directory/'refined'),str(directory/'source.wav')],job['id'],directory/f'refine-{kind}.log',
+                    progress={'start':start,'span':35,'stage':'Refinando a voz' if kind=='vocals' else 'Refinando a bateria'})
+            replacement=directory/'refined'/signature/'source'/f'{kind}.wav'
+            if not replacement.is_file(): raise RuntimeError(f'O modelo não devolveu a faixa {kind}.')
+            # Atomic rename replaces the hard link, preserving the parent's WAV.
+            replacement.replace(output/f'{kind}.wav')
+        result['separation']={**result.get('separation',{}),'refined':{'vocals':'04573f0d','drums':'f7e0c4bc'},'segment':7,'overlap':.5,'shifts':1}
+    db.update(job['id'],progress=85,stage='Reconhecendo os acordes do acompanhamento')
+    command([sys.executable,'-m','riffsync.transcribe',str(output),'--chords-only'],job['id'],directory/'harmony.log')
+    harmony=json.loads((output/'transcription.json').read_text(encoding='utf-8'))
+    result.update(chords=harmony['chords'],bpm=harmony['bpm'],timing=harmony.get('timing'))
+    warnings=harmony['warnings']
+    if not any(chord['label']!='N' for chord in result['chords']):
+        warnings.append('Não foi possível reconhecer acordes suficientes. A cifra pode ser preenchida ou importada em TXT.')
+    check_job(job['id'])
+    db.update(job['id'],status='completed',progress=100,stage='Cifra pronta' if job['operation']=='chords' else 'Voz e bateria refinadas',result=result,warnings=warnings,
+              lyrics_state='ready' if result.get('lyrics') else 'not_requested')
+    shutil.rmtree(directory/'refined',ignore_errors=True)
+    (directory/'source.wav').unlink(missing_ok=True)
+
 def process_lyrics(job):
     directory = config.DATA/job['id']
-    source = directory/'output'/'vocals.wav'
-    if not source.is_file(): raise RuntimeError('A faixa de voz separada não está disponível no servidor.')
+    originals = list(directory.glob('input.*'))
+    use_original = job.get('lyrics_source','original') == 'original' and bool(originals)
+    source = originals[0] if use_original else directory/'output'/'vocals.wav'
+    if not source.is_file(): raise RuntimeError('O áudio para reconhecer a letra não está disponível no servidor.')
     db.update(job['id'], lyrics_stage='Preparando a IA da letra; primeiro uso pode baixar o modelo')
     destination = directory/'output'/'lyrics.json'
-    command([sys.executable,'-m','riffsync.lyrics',str(source),str(destination)],job['id'],directory/'lyrics.log',progress='lyrics')
+    command([sys.executable,'-m','riffsync.lyrics',str(source),str(destination),job.get('lyrics_language','')],job['id'],directory/'lyrics.log',progress='lyrics')
     recognized=json.loads(destination.read_text(encoding='utf-8'))
     current=check_job(job['id'],lyrics=True)
     result={**current['result'],'lyrics':recognized['lyrics'],'lyrics_language':recognized['language'],'lyrics_model':recognized['model'],
-            'lyrics_revision':uuid.uuid4().hex}
+            'lyrics_revision':uuid.uuid4().hex,'lyrics_review':recognized.get('review',[]),'lyrics_source':'original' if use_original else 'vocals'}
     db.update(job['id'],result=result,lyrics_state=recognized['status'],lyrics_progress=100,lyrics_error=None,
-              lyrics_stage='Letra reconhecida' if recognized['lyrics'] else 'Nenhuma letra foi reconhecida nesta faixa de voz')
+              lyrics_stage='Letra estimada; confira os trechos marcados' if recognized.get('review') else 'Letra reconhecida' if recognized['lyrics'] else 'Não foi possível reconhecer a letra com confiança')
 
 def main():
     db.init()

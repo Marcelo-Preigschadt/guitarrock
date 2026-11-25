@@ -35,3 +35,19 @@ A nova captura de 25/11 mostra seis stems no manifesto, três recebidos e `Faile
 Essa amostra valida a integração. Não foi possível acessar o áudio de 4min30s do usuário ou sua sessão autenticada do Codespace para confirmar a recuperação específica naquele servidor. A precisão da letra cantada, dos acordes e da tablatura em músicas reais não é comprovada pelo teste com fala sintetizada.
 
 Referências: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) e a implementação `app/faixalab/pipeline.py` do [FaixaLab](https://github.com/Marcelo-Preigschadt/FaixaLab), revisão do arquivo `3d63002127460416d187a867632df59fe9f7e655`. Foi reaproveitada a configuração técnica de ASR, mantendo o aplicativo guitarrock.
+
+## Versão 0.3.1 — cifra no braço, recuperação harmônica e revisões
+
+- A aba inicial **Cifra e braço** mostra um diagrama de acorde, notas nas cordas/casas e a sequência reconhecida. O braço alterna entre digitação sugerida do acorde e notas estimadas de guitarra/baixo. As posições não identificam a digitação original do músico.
+- As digitações foram verificadas por classes de altura: 12 fundamentais e 10 qualidades produzem exatamente as notas do acorde. O detector de áudio continua cobrindo tríades maiores/menores; o dicionário visual também aceita acordes digitados manualmente, como sétimas e power chords.
+- A cifra passa a ter dados próprios (`Project.harmony`). Importar letra não a apaga. Marcadores antigos com acordes simples também podem alimentar a visualização. Recalcular cifra usa os WAVs existentes, sem Demucs nem nova transcrição de notas.
+- O gate de energia harmônica deixou de usar um limiar absoluto de .003, que descartava acompanhamento baixo. Usa nível relativo e inclui o baixo com peso reduzido. Um teste com Em/C mantém os mesmos acordes após redução de amplitude em 60 dB. A amostra de seis segundos, após separação, retornou Em até 3.04 s e C em seguida.
+- Refinamento executado de verdade com os especialistas oficiais `04573f0d` (voz) e `f7e0c4bc` (bateria), sete segundos de contexto e 50% de sobreposição. A comparação SHA-256 confirmou preservação dos quatro outros WAVs e de todos os WAVs da tarefa anterior. A interface conserva uma cópia local anterior para comparação. Isso valida a execução e preservação, não uma melhoria perceptiva universal.
+- Whisper large-v3-turbo CPU/int8 executado no MP3 original da amostra, com idioma inglês fixado, reconhecendo a frase de teste e timestamps. A interface permite escolher o idioma e refazer a letra no original; remove a letra anterior enquanto aguarda. Trechos com baixa confiança ficam sem palavras e são marcados para revisão. Confiança do modelo não comprova que a letra está correta.
+- Navegador: resultado de IA salvo, recálculo de cifra sem separação, troca Em→C com atualização do diagrama e do braço, modo notas da faixa e seleção de idioma/refazer letra.
+
+Não houve acesso ao áudio do usuário nesta rodada. A amostra contém fala sintetizada e instrumentos gerados para teste; não comprova a qualidade da voz cantada na música do usuário. O refinamento é opcional, adiciona duas inferências e não usa uma API paga.
+
+Fonte dos especialistas: [configuração oficial de htdemucs_ft](https://github.com/facebookresearch/demucs/blob/main/demucs/remote/htdemucs_ft.yaml). O modo comum passa a usar janela de sete segundos e overlap de 50%; o conjunto de seis fontes continua experimental.
+
+Validação final da versão 0.3.1: 40 testes Python, 32 testes TypeScript e build de produção aprovados.

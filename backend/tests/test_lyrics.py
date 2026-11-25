@@ -105,8 +105,21 @@ class LyricsTests(unittest.TestCase):
         health=self.client.get('/api/health').json()
         manifest=self.client.get('/version.json')
         self.assertEqual(manifest.json(),health['build'])
-        self.assertEqual(health['version'],'0.3.0')
+        self.assertEqual(health['version'],'0.3.1')
         response=self.client.get('/')
         self.assertEqual(response.content,(dist/'index.html').read_bytes())
         for path in ('/','/version.json','/sw.js','/api/health'):
             self.assertEqual(self.client.get(path).headers['cache-control'],'no-store')
+
+    def test_lyrics_worker_uses_original_and_explicit_language(self):
+        job=self.completed(); folder=config.DATA/job['id']
+        (folder/'input.mp3').write_bytes(b'original recording')
+        db.request_lyrics(job['id'],language='en'); claimed=db.claim_lyrics('asr')
+        def recognize(args,*_args,**_kwargs):
+            self.assertEqual(Path(args[3]),folder/'input.mp3')
+            self.assertEqual(args[-1],'en')
+            Path(args[4]).write_text(json.dumps({'lyrics':[{'start':0,'end':1,'text':'Known lyric'}],'language':'en','model':'large-v3-turbo','status':'ready','review':[]}))
+        with patch('riffsync.worker.command',side_effect=recognize):worker.process_lyrics(claimed)
+        result=db.get(job['id'])
+        self.assertEqual(result['status'],'completed');self.assertEqual(result['result']['lyrics_source'],'original')
+        self.assertEqual(result['result']['lyrics_model'],'large-v3-turbo')

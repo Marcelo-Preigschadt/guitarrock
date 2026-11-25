@@ -37,6 +37,7 @@ export type Lyric = {
   text: string;
   words?: { start: number; end: number; text: string; confidence?: number }[];
 };
+export type Chord = { start: number; end: number; label: string };
 export type Project = {
   version: 1;
   id: string;
@@ -49,8 +50,11 @@ export type Project = {
   rawText: string;
   lyrics?: Lyric[];
   lyricsLanguage?: string;
+  lyricsSource?: string;
+  lyricsReview?: { start: number; end: number; reason: string }[];
   lyricsRevision?: string;
   lyricsPending?: boolean;
+  harmony?: Chord[];
   bpm?: number;
   demo?: boolean;
   jobId?: string;
@@ -66,6 +70,8 @@ export type Session = {
   score?: Blob;
 };
 export type Job = {
+  operation?: "chords" | "vocals_drums";
+  source_job?: string;
   id: string;
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
   stage: string;
@@ -98,10 +104,12 @@ export type Job = {
       notes?: Note[];
       waveform?: number[];
     }[];
-    chords: { start: number; end: number; label: string }[];
+    chords: Chord[];
     lyrics?: Lyric[];
     lyrics_language?: string;
     lyrics_revision?: string;
+    lyrics_review?: { start: number; end: number; reason: string }[];
+    lyrics_source?: string;
   };
 };
 export type Measure = {
