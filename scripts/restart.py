@@ -31,6 +31,9 @@ def main():
     dependency = subprocess.run([python,'-c',"import importlib.util; raise SystemExit(0 if importlib.util.find_spec('faster_whisper') else 1)"])
     if dependency.returncode:
         subprocess.run([python,'-m','pip','install','faster-whisper>=1.2,<2'],check=True)
+    roformer = subprocess.run([python,'-c',"from importlib.metadata import version; raise SystemExit(0 if version('bs-roformer') == '0.6.0' else 1)"], capture_output=True)
+    if roformer.returncode:
+        subprocess.run([python,'-m','pip','install','bs-roformer==0.6.0'],check=True)
     subprocess.run(['node','frontend/scripts/install-deps.mjs'], check=True)
     subprocess.run(['npm','run','build'], check=True)
     expected = json.loads((root/'frontend/dist/version.json').read_text())

@@ -11,7 +11,7 @@ def summarize_failure(returncode, detail):
         return "terminated", "O processo recebeu SIGTERM (sinal 15) e foi interrompido externamente. O arquivo enviado foi preservado para retomar.", "Encerramento por SIGTERM (15).\n" + excerpt
     if returncode in (-9, 137) or any(p in lower for p in ("out of memory", "cannot allocate memory", "defaultcpuallocator", "std::bad_alloc")):
         return "memory", "O separador foi encerrado por falta de memória ou por um limite do servidor.", excerpt
-    if any(p in lower for p in ("http error", "urlopen error", "certificate_verify_failed", "name resolution", "connection refused", "connection reset", "timed out")):
+    if any(p in lower for p in ("sha256 divergente", "http error", "urlopen error", "certificate_verify_failed", "name resolution", "connection refused", "connection reset", "timed out")):
         return "model_download", "Não foi possível baixar ou carregar os pesos do modelo. Confira a conexão do servidor e tente novamente.", excerpt
     if any(p in lower for p in ("no space left", "disk quota exceeded")):
         return "disk", "O servidor ficou sem espaço para salvar as pistas de áudio.", excerpt

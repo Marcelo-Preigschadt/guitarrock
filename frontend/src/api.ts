@@ -4,6 +4,7 @@ export type Health = {
   status: string;
   worker_online: boolean;
   separation_available: boolean;
+  quality_available?: boolean;
   transcription_available: boolean;
   lyrics_available?: boolean;
   version?: string;
@@ -53,10 +54,12 @@ export async function createJob(
   transcribe: boolean,
   lyrics = true,
   lyricsLanguage = "",
+  quality: "balanced" | "studio" = "studio",
 ) {
   const body = new FormData();
   body.append("file", file, name);
   body.append("model", model);
+  body.append("quality", quality);
   body.append("transcribe", String(transcribe));
   body.append("lyrics", String(lyrics));
   body.append("lyrics_language", lyricsLanguage);
@@ -83,7 +86,7 @@ export const cancelLyrics = (base: string, id: string) =>
 export const reviseJob = (
   base: string,
   id: string,
-  operation: "chords" | "vocals_drums",
+  operation: "chords" | "vocals_drums" | "quality",
 ) => {
   const body = new FormData();
   body.append("operation", operation);

@@ -15,7 +15,7 @@ Estúdio web para carregar uma gravação, separar instrumentos e gerar automati
 - Importação de texto TXT, LRC e ChordPro; espaços de cifras e tablaturas ASCII são preservados. LRC mantém os timestamps.
 - Sincronização manual por bloco ou linha: selecione o trecho, toque o áudio e pressione **M**, ou use **Marcar**. Tempos também podem ser digitados.
 - **Cifra e braço**: sequência de acordes com diagramas, braço horizontal e notas nas casas sincronizadas. Alterna digitação sugerida do acorde e notas detectadas na guitarra/baixo. A cifra é armazenada separadamente do texto importado. **Gerar/Recalcular cifra** reutiliza as faixas existentes e não executa Demucs.
-- **Refinar voz e bateria**: aplica somente os especialistas `04573f0d` (voz) e `f7e0c4bc` (bateria) do conjunto oficial `htdemucs_ft`, em duas passagens. Baixo, guitarra, piano e outros são preservados byte a byte; o resultado anterior permanece no servidor e é salvo como projeto local para comparação. Não garante uma melhoria perceptível em toda música e acrescenta tempo de inferência.
+- **Reprocessar em qualidade superior**: cria uma revisão independente a partir do upload original. Combina `htdemucs_6s` para guitarra/piano, Mel-Band RoFormer (Kimberley Jensen) para voz e os especialistas oficiais `f7e0c4bc` (bateria) e `d12395a8` (baixo). Os modelos Demucs usam duas estimativas deslocadas. Preserva a versão anterior em Meus projetos e no servidor. Não reutiliza o cache de áudio antigo como se fosse o novo resultado. A rota antiga de refinamento de voz/bateria permanece compatível com clientes anteriores.
 - **Arranjo da IA**: pautas e tablaturas geradas diretamente dos eventos de notas detectados, com cifras acima dos compassos, cursor e páginas acompanhando a reprodução. Não exige importação de Guitar Pro/MusicXML e não gera arquivos MIDI.
 - Edição visual de cada nota: início, fim, corda, casa ou altura. A grade visual pode ser ajustada por BPM e compasso. A reprodução usa os WAVs separados, preservando o timbre da gravação.
 - Marcação de ataques de bateria, melodia da voz e notas de piano. O andamento, a métrica e as digitações são estimativas editáveis.
@@ -28,12 +28,22 @@ Estúdio web para carregar uma gravação, separar instrumentos e gerar automati
 - Cifras estimadas no acompanhamento separado (`guitar`, `piano`, `other`, com apoio do `bass`), com menor peso para `other` quando há instrumentos harmônicos dedicados; a voz e a bateria não entram nesse mix. A aba **Acordes** permite corrigir as estimativas.
 - Fila SQLite persistente, worker separado da API, progresso por etapa, cancelamento e detecção de worker interrompido.
 - Uma retentativa automática se um subprocesso receber SIGTERM com o worker ainda ativo. Reiniciar o worker recoloca a tarefa na fila; cancelamentos explícitos são preservados. O botão **Retomar processamento** reutiliza o upload de tarefas que falharam.
-- Separação com janelas de 7 segundos e sobreposição de 50% por padrão, retentativa automática com janelas menores quando há falta de memória e diagnóstico copiável na tela para falhas de memória, rede/modelos, dependências e disco. As janelas não limitam a duração da música.
+- Separação com janelas de até 7,8 segundos e sobreposição de 50% por padrão, retentativa automática com janelas menores quando há falta de memória e diagnóstico copiável na tela para falhas de memória, rede/modelos, dependências e disco. As janelas não limitam a duração da música.
 - Transcrição ONNX em blocos de até 32 segundos com contexto e fusão de eventos nas fronteiras, para limitar o uso de memória.
 - Acesso às tarefas e arquivos restrito à chave aleatória da sessão do navegador.
 - Projetos locais persistidos no IndexedDB, exportação/importação de `.riffsync` com áudios e partitura, download das pistas e exportação do acompanhamento em WAV.
 - Cache offline do aplicativo após um carregamento completo da versão de produção. A IA exige o servidor; sessões já baixadas podem ser estudadas localmente.
 - Demonstração de 19 segundos com arranjo original sintetizado. **A demonstração é identificada como tal e não simula resultados de IA.**
+
+## Qualidade da separação — v0.5.0
+
+**Superior** é a opção inicial para novos envios. Cada um dos quatro modelos recebe a mesma gravação original; guitarra e piano continuam separados, a voz usa Mel-Band RoFormer e bateria/baixo usam membros específicos de `htdemucs_ft`. Cada modelo Demucs produz duas estimativas com deslocamentos temporais, alinhadas e promediadas. A bateria combina as estimativas de `htdemucs_6s` e do especialista com pesos fixos de 50%, sem ajustar pesos para uma música específica. RoFormer usa janelas de 8 segundos com 50% de sobreposição e fades conforme a inferência do autor. **Normal** usa o modelo selecionado com uma estimativa. Quatro faixas em Superior usam RoFormer e dois especialistas e calculam Outros pelo residual; não produzem guitarra/piano separados.
+
+A inferência roda sequencialmente. Em CPU, Superior exige várias vezes o tempo do modo Normal; os pesos são baixados uma vez. O RoFormer tem cerca de 871 MiB, revisão fixa e SHA256 verificado; `torch.load(weights_only=True)` e carga estrita de parâmetros. A arquitetura usa `bs-roformer==0.6.0` com a camada linear desativada e adaptação apenas dos nomes dos slots tempo/frequência do checkpoint original. O progresso acompanha os blocos efetivamente processados em cada etapa. Em falta de memória, as janelas do Demucs diminuem e o resultado avisa que houve essa redução. O arquivo original é decodificado como float32, evitando uma etapa intermediária de quantização em PCM16.
+
+Os WAVs são entregues em PCM24 com um único fator de atenuação para todas as pistas quando necessário para evitar clipping. Não há normalização independente por instrumento. O residual de reconstrução fica exclusivamente em Outros; a soma das pistas recupera a gravação com esse ganho comum, dentro da precisão de PCM24. Isso garante o balanço do conjunto, não a ausência de vazamentos em cada pista. A reprodução continua usando o cache AAC320; o download individual fornece o WAV PCM24. O manifesto registra modelos, perfil, janelas, estimativas, ganho e erro de reconstrução.
+
+Para músicas já separadas, clique em **Reprocessar em qualidade superior**. Os WAVs antigos não mudam automaticamente. A revisão preserva letra, notação e ajustes do mixer; recalcula a cifra sem descartar o áudio se essa análise falhar. A revisão só é concluída depois que todas as faixas esperadas foram geradas. Não aplica gate ou denoiser de fala aos instrumentos: ambos podem cortar pratos, ataques e sustain. Ainda podem ocorrer artefatos de separação, especialmente em guitarra e piano do modelo experimental.
 
 ## Pedaleira e timbre — v0.4.0
 
@@ -134,7 +144,7 @@ Na raiz do repositório:
 git pull --ff-only && python3 scripts/restart.py
 ```
 
-Esse comando instala o reconhecimento de letra se estiver ausente, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.4.2**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
+Esse comando instala os motores de letra e RoFormer se estiverem ausentes, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.5.0**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
 
 API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Não apague os dados do site no navegador: os projetos e a chave de acesso às tarefas são armazenados ali.
 
@@ -152,7 +162,7 @@ Se a IA concluiu mas faltam áudios, use **Recuperar resultado**. Essa ação bu
 |---|---|---|
 | `RIFFSYNC_DATA` | `./data` | SQLite, uploads e resultados; deve ser compartilhado entre API e worker |
 | `RIFFSYNC_DEVICE` | `auto` | `cpu`, `cuda` ou seleção automática |
-| `SEPARATION_SEGMENT_SECONDS` | `7` | Janela interna do modelo, entre 1 e 7 segundos |
+| `SEPARATION_SEGMENT_SECONDS` | `7.8` | Janela interna do Demucs, entre 1 e 7,8 segundos; RoFormer usa 8 s |
 | `MAX_UPLOAD_MB` | `200` | Limite por upload no backend |
 | `MAX_DURATION_SECONDS` | `1200` | Duração máxima do áudio enviado à IA |
 | `JOB_TIMEOUT_SECONDS` | `7200` | Timeout por etapa de subprocesso |

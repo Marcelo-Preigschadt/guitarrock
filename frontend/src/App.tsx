@@ -117,6 +117,7 @@ export default function App() {
   const [connection, setConnection] = useState<Health | null>(null);
   const [checking, setChecking] = useState(false);
   const [model, setModel] = useState("htdemucs_6s");
+  const [quality, setQuality] = useState<"balanced" | "studio">("studio");
   const [transcribe, setTranscribe] = useState(true);
   const [recognizeLyrics, setRecognizeLyrics] = useState(true);
   const [lyricsLanguage, setLyricsLanguage] = useState("");
@@ -144,6 +145,8 @@ export default function App() {
     [],
   );
   const jobActive = job?.status === "queued" || job?.status === "running";
+  const superiorApplied = job?.result?.separation?.quality === "studio" &&
+    job.result.separation.engine === "original-mix-v2";
   const canSeparate =
     !!project &&
     !project.demo &&
@@ -700,6 +703,7 @@ export default function App() {
         transcribe,
         recognizeLyrics,
         lyricsLanguage,
+        quality,
       );
       setJob(created);
       update((current) =>
@@ -725,18 +729,20 @@ export default function App() {
       setBusy("");
     }
   };
-  const revise = async (operation: "chords" | "vocals_drums") => {
+  const revise = async (operation: "chords" | "vocals_drums" | "quality") => {
     const p = projectRef.current;
     if (!p?.jobId || busy || jobActive || receiving) return;
     setBusy(
       operation === "chords"
         ? "Preparando a cifra com as faixas existentes…"
-        : "Preparando o refinamento de voz e bateria…",
+        : operation === "quality"
+          ? "Preparando nova separação em qualidade superior…"
+          : "Preparando o refinamento de voz e bateria…",
     );
     try {
       const created = await reviseJob(p.jobBase || "", p.jobId, operation);
       if (projectRef.current?.id !== p.id) return;
-      if (operation === "vocals_drums") {
+      if (operation !== "chords") {
         const backup = {
           ...p,
           id: crypto.randomUUID(),
@@ -761,6 +767,7 @@ export default function App() {
       for (const track of p.tracks) {
         if (
           track.kind === "original" ||
+          operation === "quality" ||
           (operation === "vocals_drums" &&
             ["vocals", "drums"].includes(track.kind))
         )
@@ -1752,14 +1759,17 @@ export default function App() {
               <div className="refine-actions">
                 <button
                   className="button secondary compact"
-                  disabled={!!busy || jobActive || receiving}
-                  onClick={() => void revise("vocals_drums")}
+                  disabled={!!busy || jobActive || receiving || superiorApplied}
+                  onClick={() => void revise("quality")}
                 >
-                  <Sparkles size={15} /> Refinar voz e bateria
+                  <Sparkles size={15} /> {superiorApplied
+                    ? "Qualidade superior aplicada"
+                    : "Reprocessar em qualidade superior"}
                 </button>
                 <span>
-                  Processa dois modelos específicos; mantém baixo, guitarra e
-                  demais faixas. A versão anterior fica em Meus projetos.
+                  Mel-Band RoFormer na voz, modelos específicos para bateria e baixo.
+                  Mantém guitarra e piano separados no modo de seis faixas. Em CPU,
+                  pode levar várias vezes o tempo normal. A versão anterior fica em Meus projetos.
                 </span>
               </div>
             )}
@@ -2336,6 +2346,23 @@ export default function App() {
                 <p className="field-help">
                   O modelo de 6 faixas é experimental. Solo e base de guitarra
                   podem permanecer na mesma pista.
+                </p>
+                <label className="field-label" htmlFor="separation-quality">
+                  Qualidade do áudio
+                </label>
+                <select
+                  id="separation-quality"
+                  value={quality}
+                  onChange={(e) => setQuality(e.target.value as "balanced" | "studio")}
+                >
+                  <option value="studio">Superior · RoFormer na voz e modelos por instrumento</option>
+                  <option value="balanced">Normal · um modelo e uma estimativa</option>
+                </select>
+                <p className="field-help">
+                  A qualidade superior pode levar várias vezes o tempo normal em CPU.
+                  Vazamentos e artefatos ainda podem ocorrer, principalmente em guitarra
+                  e piano. O resultado usa WAV de 24 bits e preserva os níveis relativos.
+                  O modelo de voz baixa cerca de 871 MiB no primeiro uso.
                 </p>
                 <label className="checkbox-field">
                   <input

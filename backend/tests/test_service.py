@@ -117,10 +117,16 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(response.status_code, 202)
             job = db.get(response.json()['id'])
             self.assertEqual(job['status'], 'queued')
+            self.assertEqual(job['quality'], 'studio')
             self.assertEqual((config.DATA / job['id'] / 'input.mp3').read_bytes(), b'test-audio')
             with patch.object(config, 'MAX_UPLOAD', 2):
                 response = self.client.post('/api/jobs', headers=HEADERS, files={'file':('large.mp3', b'12345', 'audio/mpeg')})
                 self.assertEqual(response.status_code, 413)
+
+    def test_invalid_quality_is_rejected_before_creating_a_job(self):
+        response = self.client.post('/api/jobs', headers=HEADERS, data={'quality':'unverified'}, files={'file':('audio.mp3',b'original')})
+        self.assertEqual(response.status_code,422)
+        self.assertFalse(list(config.DATA.glob('*/input.*')))
 
     def test_missing_worker_returns_actionable_error(self):
         response = self.client.post('/api/jobs', headers=HEADERS, files={'file':('audio.mp3', b'test', 'audio/mpeg')})

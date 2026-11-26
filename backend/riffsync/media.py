@@ -3,12 +3,10 @@
 Reference: Marcelo-Preigschadt/FaixaLab app/faixalab/backing.py at 0a74a79.
 Original separated WAV files remain untouched and downloadable.
 """
-import array
 import fcntl
 import hashlib
 import json
 import subprocess
-import sys
 import threading
 import uuid
 import wave
@@ -45,22 +43,24 @@ def playback(source):
 
 
 def waveform(source, count=220):
-    """Bounded-memory peaks from the actual PCM16 output, cached with the WAV revision."""
+    """Bounded-memory peaks from PCM16/24/32, cached with the WAV revision."""
     source = Path(source)
     try:
         cache = source.parent/(signature(source)+'.peaks.json')
         if cache.is_file(): return json.loads(cache.read_text())
         with wave.open(str(source), 'rb') as audio:
-            if audio.getsampwidth() != 2: return []
+            width = audio.getsampwidth()
+            if width not in (2, 3, 4): return []
             frames, channels = audio.getnframes(), audio.getnchannels()
             values = []
             for index in range(count):
                 start, end = frames*index//count, frames*(index+1)//count
                 audio.setpos(start)
-                samples = array.array('h', audio.readframes(end-start))
-                if sys.byteorder != 'little': samples.byteswap()
-                stride = max(channels, len(samples)//200)
-                values.append(max((abs(value)/32768 for value in samples[::stride]), default=0))
+                samples = audio.readframes(end-start)
+                stride = max(1, (end-start)//200) * channels * width
+                values.append(max((abs(int.from_bytes(samples[at+channel*width:at+(channel+1)*width], 'little', signed=True)) / 2**(width*8-1)
+                                   for at in range(0, len(samples)-channels*width+1, stride)
+                                   for channel in range(channels)), default=0))
         maximum = max(max(values, default=0), .001)
         result = [round(value/maximum, 5) for value in values]
         temporary = cache.with_name(uuid.uuid4().hex+'.peaks.tmp')

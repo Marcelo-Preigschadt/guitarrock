@@ -36,9 +36,9 @@ def heartbeat(worker_id):
     with connect() as c:
         c.execute("INSERT OR REPLACE INTO workers VALUES (?, ?)", (worker_id, time.time()))
 
-def create(owner, filename, model, transcribe, lyrics=False, source_job=None, operation=None):
+def create(owner, filename, model, transcribe, lyrics=False, source_job=None, operation=None, quality="balanced"):
     now, job_id = time.time(), uuid.uuid4().hex
-    payload = {"id": job_id, "filename": filename, "model": model, "transcribe": transcribe,
+    payload = {"id": job_id, "filename": filename, "model": model, "transcribe": transcribe, "quality": quality,
                "status": "uploading", "stage": "Recebendo o áudio", "progress": 0,
                "created": now, "updated": now, "warnings": [], "result": None, "error": None,
                'recognize_lyrics': lyrics, 'lyrics_state': 'waiting' if lyrics else 'not_requested',

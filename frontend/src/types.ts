@@ -73,7 +73,7 @@ export type Session = {
   rigAssets?: RigAssets;
 };
 export type Job = {
-  operation?: "chords" | "vocals_drums";
+  operation?: "chords" | "vocals_drums" | "quality";
   source_job?: string;
   id: string;
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -96,6 +96,7 @@ export type Job = {
   lyrics_stage?: string;
   lyrics_error?: string;
   result?: {
+    separation?: { quality?: "balanced" | "studio"; engine?: string; shifts?: number; encoding?: string };
     duration: number;
     bpm?: number;
     timing?: Timing;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { artifact } from "./api";
+import { artifact, createJob, reviseJob } from "./api";
 
 function wav() {
   const bytes = new Uint8Array(46);
@@ -123,5 +123,22 @@ describe("retomada de downloads interrompidos pelo proxy", () => {
     expect(
       (fetch.mock.calls[3][1].headers as Record<string, string>)["If-Range"],
     ).toBe('"same-wav"');
+  });
+});
+
+
+describe("qualidade da separação", () => {
+  it("envia o perfil para qualquer arquivo e reaproveita o upload ao revisar", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({id:"quality-job"}), {headers:{"content-type":"application/json"}}));
+    vi.stubGlobal("fetch",fetch);
+    const file = new Blob(["original"],{type:"audio/mpeg"});
+    await createJob("",file,"qualquer-musica.mp3","htdemucs_6s",true);
+    const body = (fetch.mock.calls[0] as unknown as [string,RequestInit])[1].body as FormData;
+    expect(body.get("quality")).toBe("studio");
+    expect((body.get("file") as File).name).toBe("qualquer-musica.mp3");
+    await reviseJob("","old-job","quality");
+    const revised = (fetch.mock.calls[1] as unknown as [string,RequestInit])[1].body as FormData;
+    expect(revised.get("operation")).toBe("quality");
+    expect(revised.has("file")).toBe(false);
   });
 });

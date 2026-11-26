@@ -20,7 +20,7 @@ async def lifespan(_app):
     db.init()
     yield
 
-app = FastAPI(title="RiffSync API", version="0.4.2", lifespan=lifespan)
+app = FastAPI(title="RiffSync API", version="0.5.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=config.ORIGINS, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Workspace-Key", "Range", "If-Range"], expose_headers=["Content-Range", "Content-Length", "Accept-Ranges", "ETag"])
 
 def owner(x_workspace_key: str = Header(default="")):
@@ -39,23 +39,27 @@ def owned(job_id, key):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "worker_online": db.worker_online(),
-            "version": "0.4.2", "build": frontend_version(),
+            "version": "0.5.0", "build": frontend_version(),
             "separation_available": bool(importlib.util.find_spec("demucs")) and bool(shutil.which("ffmpeg")),
+            "quality_available": bool(importlib.util.find_spec("bs_roformer")),
             "transcription_available": bool(importlib.util.find_spec("basic_pitch")),
             "lyrics_available": bool(importlib.util.find_spec('faster_whisper')), "device": config.DEVICE}
 
 @app.post("/api/jobs", status_code=202)
-async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6s"), transcribe: bool = Form(True), lyrics: bool = Form(True), lyrics_language: str = Form(''), key=Depends(owner)):
+async def create_job(file: UploadFile = File(...), model: str = Form("htdemucs_6s"), transcribe: bool = Form(True), lyrics: bool = Form(True), lyrics_language: str = Form(''), quality: str = Form('studio'), key=Depends(owner)):
     if lyrics_language and not re.fullmatch('[a-z]{2}',lyrics_language): raise HTTPException(422,'Idioma inválido.')
+    if quality not in {'balanced', 'studio'}: raise HTTPException(422, 'Qualidade de separação inválida.')
     if model not in config.MODELS:
         raise HTTPException(422, "Modelo de separação inválido.")
     if not db.worker_online() or not importlib.util.find_spec("demucs"):
         raise HTTPException(503, "O servidor de separação não está disponível. Conecte um servidor com o worker ativo.")
+    if quality == 'studio' and not importlib.util.find_spec('bs_roformer'):
+        raise HTTPException(503, 'O modelo de qualidade superior ainda não foi instalado. Atualize pelo script de reinício.')
     extension = Path(file.filename or "").suffix.lower()
     if extension not in {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".webm", ".weba", ".opus"}:
         raise HTTPException(415, "Envie MP3, WAV, FLAC, OGG, M4A, AAC, WebM ou Opus.")
     try:
-        job = db.create(key, Path(file.filename or "audio").name[:180], model, transcribe, lyrics=lyrics)
+        job = db.create(key, Path(file.filename or "audio").name[:180], model, transcribe, lyrics=lyrics, quality=quality)
     except ValueError as error:
         raise HTTPException(429, str(error)) from error
     directory = config.DATA / job["id"]
@@ -138,18 +142,20 @@ def revise_job(job_id: str, operation: str = Form('chords'), key=Depends(owner))
     parent = owned(job_id, key)
     if parent['status'] != 'completed' or not parent.get('result'):
         raise HTTPException(409, 'Aguarde as faixas ficarem prontas.')
-    if operation not in {'chords', 'vocals_drums'}:
+    if operation not in {'chords', 'vocals_drums', 'quality'}:
         raise HTTPException(422, 'Revisão inválida.')
     if not db.worker_online(): raise HTTPException(503, 'O worker de processamento está indisponível.')
     source = config.DATA/job_id
     inputs = list(source.glob('input.*'))
-    if operation == 'vocals_drums' and not inputs:
+    if operation in {'vocals_drums', 'quality'} and not inputs:
         raise HTTPException(409, 'O áudio original não está mais no servidor. Carregue a música novamente para refinar.')
+    if operation == 'quality' and not importlib.util.find_spec('bs_roformer'):
+        raise HTTPException(503, 'O modelo de qualidade superior ainda não foi instalado. Atualize pelo script de reinício.')
     for track in parent['result']['tracks']:
         name=track['file']
         if Path(name).name != name or not (source/'output'/name).is_file():
             raise HTTPException(409, 'Uma das faixas não está mais no servidor. Recupere o resultado antes de revisar.')
-    try: job=db.create(key,parent['filename'],parent['model'],False,source_job=job_id,operation=operation)
+    try: job=db.create(key,parent['filename'],parent['model'],False,source_job=job_id,operation=operation,quality='studio' if operation=='quality' else parent.get('quality','balanced'))
     except ValueError as error: raise HTTPException(429,str(error)) from error
     directory=config.DATA/job['id']
     if job.get('_existing'): return db.public(db.get(job['id']))
@@ -165,7 +171,7 @@ def revise_job(job_id: str, operation: str = Form('chords'), key=Depends(owner))
         (directory/'revision.json').write_text(json.dumps(parent['result']),encoding='utf-8')
         # Refresh parent retention; its audio remains an independent comparison result.
         db.update(job_id)
-        db.update(job['id'],status='queued',stage='Cifra na fila' if operation=='chords' else 'Voz e bateria na fila de refinamento')
+        db.update(job['id'],status='queued',stage='Cifra na fila' if operation=='chords' else 'Qualidade superior na fila' if operation=='quality' else 'Voz e bateria na fila de refinamento')
     except BaseException:
         db.update(job['id'],status='failed',error='Não foi possível preparar a revisão; o resultado anterior foi preservado.')
         shutil.rmtree(directory,ignore_errors=True)

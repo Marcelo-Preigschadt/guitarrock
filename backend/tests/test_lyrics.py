@@ -105,7 +105,7 @@ class LyricsTests(unittest.TestCase):
         health=self.client.get('/api/health').json()
         manifest=self.client.get('/version.json')
         self.assertEqual(manifest.json(),health['build'])
-        self.assertEqual(health['version'],'0.4.2')
+        self.assertEqual(health['version'],'0.5.0')
         response=self.client.get('/')
         self.assertEqual(response.content,(dist/'index.html').read_bytes())
         for path in ('/','/version.json','/sw.js','/api/health'):

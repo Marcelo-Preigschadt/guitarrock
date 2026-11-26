@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -40,15 +41,16 @@ class ProcessingTests(unittest.TestCase):
             directory = Path(temp)/job['id']; directory.mkdir(); (directory/'input.mp3').write_bytes(b'fixture')
             separation_calls = []
             def fake_command(args, job_id, log_path, progress=False):
-                if 'demucs' not in args:
+                if 'riffsync.separate' not in args:
                     return
                 separation_calls.append(args)
                 if len(separation_calls) == 1:
                     log_path.write_text('RuntimeError: out of memory')
                     raise ProcessingFailure(-9, log_path)
-                stems = directory/'separated'/'htdemucs_6s'/'source'; stems.mkdir(parents=True)
+                stems = directory/'separated'; stems.mkdir(parents=True)
                 for name in ('vocals','drums','bass','guitar','piano','other'):
                     (stems/f'{name}.wav').write_bytes(b'fixture')
+                (stems/'engine.json').write_text(json.dumps({'segment':2,'quality':'balanced'}))
             with patch('riffsync.worker.duration', return_value=196.0), patch('riffsync.worker.command', side_effect=fake_command):
                 process(job)
             self.assertEqual([args[args.index('--segment')+1] for args in separation_calls], ['4','2'])
@@ -56,6 +58,7 @@ class ProcessingTests(unittest.TestCase):
             self.assertEqual(result['status'], 'completed')
             self.assertEqual(result['result']['duration'], 196.0)
             self.assertEqual(len(result['result']['tracks']), 6)
+            self.assertIn('janelas de 2 s', result['warnings'][0])
 
 if __name__ == '__main__': unittest.main()
 

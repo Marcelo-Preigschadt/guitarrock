@@ -86,7 +86,14 @@ def command(args, job_id, log_path, progress=False):
                     elif progress:
                         with log_path.open('rb') as reader:
                             reader.seek(max(0, log_path.stat().st_size - 4096))
-                            percentages = re.findall(rb'(\d{1,3})%\|', reader.read())
+                            tail = reader.read()
+                            percentages = re.findall(rb'(\d{1,3})%\|', tail)
+                            markers = re.findall(rb'RIFFSYNC_SEPARATION (\{[^\r\n]+\})', tail)
+                        if markers:
+                            marker = json.loads(markers[-1])
+                            settings = progress if isinstance(progress, dict) else {}
+                            db.update(job_id, progress=settings.get('start', 10) + int(min(1., max(0., float(marker['fraction']))) * settings.get('span', 60)), stage=marker['stage'])
+                            percentages = []
                         if percentages:
                             value = min(100, int(percentages[-1]))
                             settings=progress if isinstance(progress,dict) else {}
@@ -132,6 +139,33 @@ def duration(file):
         raise RuntimeError(f"Envie uma música com duração de até {config.MAX_DURATION // 60} minutos.")
     return value
 
+def separation_device():
+    if config.DEVICE != 'auto': return config.DEVICE
+    probe = subprocess.run([sys.executable, '-c', "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')"], capture_output=True, text=True, timeout=60)
+    return 'cuda' if probe.returncode == 0 and probe.stdout.strip() == 'cuda' else 'cpu'
+
+
+def separate_audio(job, directory, destination, quality):
+    device = separation_device()
+    segment = min(7.8, max(1., config.SEGMENT_SECONDS))
+    attempts = list(dict.fromkeys([(device, segment), (device, min(2., segment)), ('cpu', 1.)]))
+    warnings = []
+    for attempt, (target_device, target_segment) in enumerate(attempts):
+        try:
+            command([sys.executable, '-m', 'riffsync.separate', str(directory/'source.wav'), str(destination),
+                     '--model', job['model'], '--device', target_device, '--quality', quality,
+                     '--segment', format(target_segment, 'g'), '--overlap', str(config.SEPARATION_OVERLAP)],
+                    job['id'], directory/('separation.log' if attempt == 0 else f'separation-retry-{attempt}.log'),
+                    progress=True)
+            metadata = json.loads((destination/'engine.json').read_text(encoding='utf-8'))
+            if target_segment < segment:
+                warnings.append(f'A memória disponível exigiu janelas de {target_segment:g} s em vez de {segment:g} s; isso pode reduzir a qualidade.')
+            return metadata, warnings
+        except ProcessingFailure as error:
+            if error.category != 'memory' or attempt == len(attempts)-1: raise
+            db.update(job['id'], stage='Memória insuficiente; repetindo com janelas menores', progress=10)
+
+
 def process(job):
     if job.get('operation'):
         return process_revision(job)
@@ -142,28 +176,10 @@ def process(job):
         raise RuntimeError("O upload do áudio está incompleto.")
     source = sources[0]
     length = duration(source)
-    command(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-t", str(config.MAX_DURATION), "-ac", "2", "-ar", "44100", str(directory / "source.wav")], job_id, directory / "decode.log")
+    command(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-t", str(config.MAX_DURATION), "-ac", "2", "-ar", "44100", "-c:a", "pcm_f32le", str(directory / "source.wav")], job_id, directory / "decode.log")
     db.update(job_id, progress=10, stage="Separando os instrumentos")
-    device = config.DEVICE
-    if device == "auto":
-        # Do not retain a second PyTorch runtime in the supervisor process.
-        probe = subprocess.run([sys.executable, "-c", "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')"], capture_output=True, text=True, timeout=60)
-        device = "cuda" if probe.returncode == 0 and probe.stdout.strip() == "cuda" else "cpu"
-    # Retain musical context; short windows are fallback settings, not a song limit.
-    segment = int(min(7, max(1, config.SEGMENT_SECONDS)))
-    attempts = list(dict.fromkeys([(device, segment), (device, min(2.0, segment)), ("cpu", 1.0)]))
-    for attempt, (target_device, target_segment) in enumerate(attempts):
-        try:
-            command([sys.executable, "-m", "demucs", "-n", job["model"], "-d", target_device,
-                     "--segment", str(int(target_segment)), "--jobs", "0", "--shifts", "1", "--overlap", str(config.SEPARATION_OVERLAP),
-                     "--out", str(directory / "separated"), str(directory / "source.wav")], job_id,
-                    directory / ("separation.log" if attempt == 0 else f"separation-retry-{attempt}.log"), progress=True)
-            break
-        except ProcessingFailure as error:
-            if error.category != "memory" or attempt == len(attempts) - 1:
-                raise
-            db.update(job_id, stage="Repetindo a separação com menor uso de memória", progress=10)
-    separated = directory / "separated" / job["model"] / "source"
+    separated = directory/'separated'
+    metadata, separation_warnings = separate_audio(job, directory, separated, job.get('quality', 'balanced'))
     output = directory / "output"; output.mkdir(exist_ok=True)
     tracks = []
     names = {"vocals": "Voz", "drums": "Bateria", "bass": "Baixo", "guitar": "Guitarra", "piano": "Piano", "other": "Outros"}
@@ -172,7 +188,8 @@ def process(job):
         if file.is_file():
             shutil.move(str(file), str(output / file.name))
             tracks.append({"id": kind, "kind": kind, "name": names[kind], "file": file.name})
-    if len(tracks) < 4:
+    expected = 6 if job["model"] == "htdemucs_6s" else 4
+    if len(tracks) != expected:
         raise RuntimeError("O separador não gerou todas as pistas esperadas.")
     transcription = {"bpm": None, "chords": [], "notes": {}, "timing": None, "warnings": []}
     if job["transcribe"]:
@@ -187,8 +204,8 @@ def process(job):
     for track in tracks:
         track["notes"] = transcription["notes"].get(track["kind"], [])
     db.update(job_id, status="completed", stage="Pronto para tocar", progress=100,
-              warnings=transcription["warnings"], result={"duration": length, "bpm": transcription["bpm"], "timing": transcription.get("timing"), "tracks": tracks, "chords": transcription["chords"],
-              'separation':{'model':job['model'],'segment':target_segment,'overlap':config.SEPARATION_OVERLAP,'shifts':1}},
+              warnings=separation_warnings + transcription["warnings"], result={"duration": length, "bpm": transcription["bpm"], "timing": transcription.get("timing"), "tracks": tracks, "chords": transcription["chords"],
+              'separation': metadata},
               lyrics_state='queued' if job.get('recognize_lyrics') else 'not_requested', lyrics_progress=0)
     shutil.rmtree(directory / "separated", ignore_errors=True)
     (directory / "source.wav").unlink(missing_ok=True)
@@ -197,6 +214,22 @@ def process_revision(job):
     """Reuse completed audio; chord recovery never invokes source separation."""
     directory=config.DATA/job['id']; output=directory/'output'
     result=json.loads((directory/'revision.json').read_text(encoding='utf-8'))
+    separation_warnings = []
+    if job['operation']=='quality':
+        source = next(directory.glob('input.*'))
+        command(['ffmpeg','-nostdin','-v','error','-y','-i',str(source),'-ac','2','-ar','44100','-c:a','pcm_f32le',str(directory/'source.wav')],job['id'],directory/'decode.log')
+        metadata, separation_warnings = separate_audio(job, directory, directory/'enhanced', 'studio')
+        names = {'vocals':'Voz','drums':'Bateria','bass':'Baixo','guitar':'Guitarra','piano':'Piano','other':'Outros'}
+        kinds = ['vocals','drums','bass'] + (['guitar','piano'] if job['model']=='htdemucs_6s' else []) + ['other']
+        tracks = [{**next((track for track in result['tracks'] if track['kind']==kind), {}),
+                   'id':kind,'kind':kind,'name':names[kind],'file':kind+'.wav'} for kind in kinds]
+        for track in tracks:
+            replacement = directory/'enhanced'/track['file']
+            if not replacement.is_file(): raise RuntimeError('O refinamento não devolveu todas as faixas. A versão anterior foi preservada.')
+        check_job(job['id'])
+        for track in tracks:
+            (directory/'enhanced'/track['file']).replace(output/track['file'])
+        result.update(tracks=tracks, separation=metadata)
     if job['operation']=='vocals_drums':
         source=next(directory.glob('input.*'))
         command(['ffmpeg','-nostdin','-v','error','-y','-i',str(source),'-ac','2','-ar','44100',str(directory/'source.wav')],job['id'],directory/'decode.log')
@@ -215,16 +248,24 @@ def process_revision(job):
             replacement.replace(output/f'{kind}.wav')
         result['separation']={**result.get('separation',{}),'refined':{'vocals':'04573f0d','drums':'f7e0c4bc'},'segment':7,'overlap':.5,'shifts':1}
     db.update(job['id'],progress=85,stage='Reconhecendo os acordes do acompanhamento')
-    command([sys.executable,'-m','riffsync.transcribe',str(output),'--chords-only'],job['id'],directory/'harmony.log')
-    harmony=json.loads((output/'transcription.json').read_text(encoding='utf-8'))
-    result.update(chords=harmony['chords'],bpm=harmony['bpm'],timing=harmony.get('timing'))
-    warnings=harmony['warnings']
+    warnings = separation_warnings
+    try:
+        command([sys.executable,'-m','riffsync.transcribe',str(output),'--chords-only'],job['id'],directory/'harmony.log')
+        harmony=json.loads((output/'transcription.json').read_text(encoding='utf-8'))
+        result.update(chords=harmony['chords'],bpm=harmony['bpm'],timing=harmony.get('timing'))
+        warnings += harmony['warnings']
+    except (Cancelled, WorkerStopping):
+        raise
+    except Exception:
+        if job['operation']=='chords': raise
+        warnings.append('As faixas foram refinadas; a atualização da cifra falhou. A cifra anterior foi mantida.')
     if not any(chord['label']!='N' for chord in result['chords']):
         warnings.append('Não foi possível reconhecer acordes suficientes. A cifra pode ser preenchida ou importada em TXT.')
     check_job(job['id'])
-    db.update(job['id'],status='completed',progress=100,stage='Cifra pronta' if job['operation']=='chords' else 'Voz e bateria refinadas',result=result,warnings=warnings,
+    db.update(job['id'],status='completed',progress=100,stage='Cifra pronta' if job['operation']=='chords' else 'Faixas refinadas' if job['operation']=='quality' else 'Voz e bateria refinadas',result=result,warnings=warnings,
               lyrics_state='ready' if result.get('lyrics') else 'not_requested')
     shutil.rmtree(directory/'refined',ignore_errors=True)
+    shutil.rmtree(directory/'enhanced',ignore_errors=True)
     (directory/'source.wav').unlink(missing_ok=True)
 
 def process_lyrics(job):
