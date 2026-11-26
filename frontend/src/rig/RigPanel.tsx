@@ -3,7 +3,6 @@ import {
   ArrowDown,
   ArrowUp,
   AudioLines,
-  ChevronDown,
   Guitar,
   LoaderCircle,
   Mic,
@@ -24,13 +23,14 @@ import { matchTone } from "./matcher";
 import {
   defaultPreset,
   EFFECTS,
-  type Control,
   type EffectKind,
   type RigAssets,
   type RigPreset,
   type RigState,
   validatePreset,
 } from "./types";
+import { Knob } from "./ControlKnob";
+import { GearRack } from "./GearRack";
 import "./rig.css";
 
 type Props = {
@@ -48,8 +48,6 @@ type Props = {
     signal: AbortSignal,
   ) => Promise<AudioBuffer>;
   muteReference: (id: string) => void;
-  expanded: boolean;
-  onExpand: () => void;
 };
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -63,8 +61,6 @@ export function RigPanel({
   routing,
   reference,
   muteReference,
-  expanded,
-  onExpand,
 }: Props) {
   const rig = useRef<LiveRig | undefined>(undefined);
   const mounted = useRef(true),
@@ -417,99 +413,435 @@ export function RigPanel({
           <h2>
             <Guitar size={19} /> Pedaleira e timbre
           </h2>
-          <p>Toque com sua guitarra. Modele o som. Entre na música.</p>
+          <p>
+            Monte seu equipamento e ajuste o timbre. Conecte a guitarra quando
+            quiser tocar.
+          </p>
         </div>
-        <button
-          className="button secondary"
-          onClick={onExpand}
-          aria-expanded={expanded}
-        >
-          <ChevronDown
-            size={16}
-            style={{ transform: expanded ? "rotate(180deg)" : undefined }}
-          />
-          {expanded ? "Recolher" : "Abrir pedaleira"}
-        </button>
       </div>
-      {expanded && (
-        <div className="rig-body">
-          <input
-            hidden
-            ref={assetInput}
-            type="file"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void run("Importando arquivo", () => importAsset(file));
-            }}
-          />
-          <input
-            hidden
-            ref={refInput}
-            type="file"
-            accept="audio/*,.wav,.mp3,.flac"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file)
-                void run("Abrindo referência", async () => {
-                  if (file.size > 20 * 1024 ** 2)
-                    throw new Error(
-                      "Use um trecho de referência de até 20 MB e 20 segundos.",
-                    );
-                  const buffer = await ensure().context.decodeAudioData(
-                    await file.arrayBuffer(),
+      <div className="rig-body">
+        <input
+          hidden
+          ref={assetInput}
+          type="file"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void run("Importando arquivo", () => importAsset(file));
+          }}
+        />
+        <input
+          hidden
+          ref={refInput}
+          type="file"
+          accept="audio/*,.wav,.mp3,.flac"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file)
+              void run("Abrindo referência", async () => {
+                if (file.size > 20 * 1024 ** 2)
+                  throw new Error(
+                    "Use um trecho de referência de até 20 MB e 20 segundos.",
                   );
-                  if (buffer.duration > 20 || buffer.duration < 1)
-                    throw new Error(
-                      "Use um trecho de referência entre 1 e 20 segundos.",
-                    );
-                  if (signalLevel(mono(buffer)).rms < 0.0001)
-                    throw new Error("O trecho está silencioso.");
-                  target.current = buffer;
-                  setReferenceName(file.name);
-                  setReferenceReady(true);
-                  setReport("");
-                });
+                const buffer = await ensure().context.decodeAudioData(
+                  await file.arrayBuffer(),
+                );
+                if (buffer.duration > 20 || buffer.duration < 1)
+                  throw new Error(
+                    "Use um trecho de referência entre 1 e 20 segundos.",
+                  );
+                if (signalLevel(mono(buffer)).rms < 0.0001)
+                  throw new Error("O trecho está silencioso.");
+                target.current = buffer;
+                setReferenceName(file.name);
+                setReferenceReady(true);
+                setReport("");
+              });
+          }}
+        />
+        <input
+          hidden
+          ref={presetInput}
+          type="file"
+          accept=".json"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file)
+              void run("Importando preset", async () => {
+                if (file.size > 100000) throw new Error("Preset muito grande.");
+                const next = validatePreset(JSON.parse(await file.text()));
+                if (
+                  (next.namAsset && !assets[next.namAsset]) ||
+                  (next.irAsset && !assets[next.irAsset])
+                )
+                  throw new Error(
+                    "Esse preset usa arquivos externos. Importe o projeto .riffsync para transferir NAM e IR junto.",
+                  );
+                change(next);
+              });
+          }}
+        />
+        <div className="rig-topline">
+          <span className="rig-tag">
+            <span className={connected ? "live-dot" : "offline-dot"} />
+            {connected ? "ENTRADA AO VIVO" : "ESTÚDIO DE GUITARRA"}
+          </span>
+          <span>
+            Áudio local ·{" "}
+            {latency
+              ? `48 kHz · saída estimada ${latency.toFixed(1)} ms`
+              : "48 kHz"}
+          </span>
+        </div>
+        <fieldset disabled={!!working} className="rig-fieldset">
+          <p className="rig-preview-note">
+            Pedais, amplificador e caixas disponíveis sem conectar nenhum
+            dispositivo.
+          </p>
+          <GearRack
+            preset={preset}
+            assets={assets}
+            change={change}
+            select={(kind) => {
+              setSelected(kind);
+              setTimeout(
+                () =>
+                  document
+                    .getElementById("rig-controls")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                25,
+              );
             }}
           />
-          <input
-            hidden
-            ref={presetInput}
-            type="file"
-            accept=".json"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file)
-                void run("Importando preset", async () => {
-                  if (file.size > 100000)
-                    throw new Error("Preset muito grande.");
-                  const next = validatePreset(JSON.parse(await file.text()));
-                  if (
-                    (next.namAsset && !assets[next.namAsset]) ||
-                    (next.irAsset && !assets[next.irAsset])
-                  )
-                    throw new Error(
-                      "Esse preset usa arquivos externos. Importe o projeto .riffsync para transferir NAM e IR junto.",
-                    );
-                  change(next);
-                });
-            }}
-          />
-          <div className="rig-topline">
-            <span className="rig-tag">
-              <span className={connected ? "live-dot" : "offline-dot"} />
-              {connected ? "ENTRADA AO VIVO" : "ESTÚDIO DE GUITARRA"}
-            </span>
-            <span>
-              Áudio local ·{" "}
-              {latency
-                ? `48 kHz · saída estimada ${latency.toFixed(1)} ms`
-                : "48 kHz"}
-            </span>
+          <div className="rig-board-heading">
+            <span>SEUS PEDAIS</span>
+            <p>
+              Gire os controles ou pise no botão para ligar. As setas mudam a
+              ordem do sinal.
+            </p>
           </div>
-          <fieldset disabled={!!working} className="rig-fieldset">
+          <div className="rig-pedalboard" aria-label="Pedais de guitarra">
+            {preset.effects.map((e, index) =>
+              ["amp", "cabinet"].includes(e.kind) ? null : (
+                <div
+                  key={e.kind}
+                  className={`rig-pedal ${e.enabled ? "enabled" : ""} ${selected === e.kind ? "selected" : ""}`}
+                  style={
+                    {
+                      "--pedal-color": EFFECTS[e.kind].color,
+                    } as React.CSSProperties
+                  }
+                >
+                  <button
+                    className="rig-pedal-face"
+                    onClick={() => setSelected(e.kind)}
+                    aria-pressed={selected === e.kind}
+                  >
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <strong>{EFFECTS[e.kind].name}</strong>
+                    <i aria-hidden="true" />
+                  </button>
+                  <div className="rig-mini-knobs">
+                    {EFFECTS[e.kind].controls.slice(0, 3).map((c) => (
+                      <Knob
+                        key={c.key}
+                        control={c}
+                        scope={EFFECTS[e.kind].name}
+                        value={e.params[c.key]}
+                        onChange={(value) =>
+                          change({
+                            ...preset,
+                            effects: preset.effects.map((item) =>
+                              item.kind === e.kind
+                                ? {
+                                    ...item,
+                                    params: { ...item.params, [c.key]: value },
+                                  }
+                                : item,
+                            ),
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                  <div className="rig-pedal-foot">
+                    <button
+                      aria-label={`${e.enabled ? "Desligar" : "Ligar"} ${EFFECTS[e.kind].name}`}
+                      aria-pressed={e.enabled}
+                      onClick={() =>
+                        change({
+                          ...preset,
+                          effects: preset.effects.map((item) =>
+                            item.kind === e.kind
+                              ? { ...item, enabled: !item.enabled }
+                              : item,
+                          ),
+                        })
+                      }
+                    >
+                      <Power size={14} />
+                    </button>
+                    <button
+                      aria-label={`Mover ${EFFECTS[e.kind].name} antes`}
+                      disabled={index === 0}
+                      onClick={() => move(e.kind, -1)}
+                    >
+                      <ArrowUp size={12} />
+                    </button>
+                    <button
+                      aria-label={`Mover ${EFFECTS[e.kind].name} depois`}
+                      disabled={index === preset.effects.length - 1}
+                      onClick={() => move(e.kind, 1)}
+                    >
+                      <ArrowDown size={12} />
+                    </button>
+                  </div>
+                </div>
+              ),
+            )}
+          </div>
+          <div className="rig-editor" id="rig-controls">
+            <div className="rig-editor-head">
+              <div>
+                <span className="rig-label">AJUSTE MANUAL</span>
+                <h3>{EFFECTS[selected].name}</h3>
+              </div>
+              <span>
+                {fx.enabled ? "Ligado na cadeia" : "Desligado na cadeia"}
+              </span>
+            </div>
+            {selected === "amp" && (
+              <div className="rig-models">
+                <label>
+                  Amplificador
+                  <select
+                    aria-label="Modelo do amplificador"
+                    value={preset.amp}
+                    onChange={(e) =>
+                      change({
+                        ...preset,
+                        amp: e.target.value as RigPreset["amp"],
+                      })
+                    }
+                  >
+                    <option value="clean">Clean · DSP</option>
+                    <option value="crunch">Crunch · DSP</option>
+                    <option value="highgain">High gain · DSP</option>
+                    <option
+                      value="nam"
+                      disabled={
+                        !Object.values(assets).some((a) => a.kind === "nam")
+                      }
+                    >
+                      Captura neural · NAM
+                    </option>
+                  </select>
+                </label>
+                {preset.amp === "nam" && (
+                  <label>
+                    Captura
+                    <select
+                      aria-label="Captura NAM"
+                      value={preset.namAsset || ""}
+                      onChange={(e) =>
+                        change({ ...preset, namAsset: e.target.value })
+                      }
+                    >
+                      <option value="" disabled>
+                        Escolha uma captura
+                      </option>
+                      {Object.entries(assets)
+                        .filter(([, a]) => a.kind === "nam")
+                        .map(([id, a]) => (
+                          <option key={id} value={id}>
+                            {a.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                <button
+                  className="button secondary"
+                  onClick={() => filePicker("nam")}
+                >
+                  <Upload size={15} />
+                  Importar .nam
+                </button>
+                <small>
+                  Capturas compatíveis com o motor Neural Amp Modeler. Modelos
+                  em 48 kHz; nenhum modelo comercial incluído.
+                </small>
+              </div>
+            )}
+            {selected === "cabinet" && (
+              <div className="rig-models">
+                <label>
+                  Caixa
+                  <select
+                    aria-label="Modelo da caixa"
+                    value={preset.cabinet}
+                    onChange={(e) =>
+                      change({
+                        ...preset,
+                        cabinet: e.target.value as RigPreset["cabinet"],
+                      })
+                    }
+                  >
+                    <option value="1x12">1×12 · DSP</option>
+                    <option value="2x12">2×12 · DSP</option>
+                    <option value="4x12">4×12 · DSP</option>
+                    <option
+                      value="ir"
+                      disabled={
+                        !Object.values(assets).some((a) => a.kind === "ir")
+                      }
+                    >
+                      IR importado
+                    </option>
+                  </select>
+                </label>
+                {preset.cabinet === "ir" && (
+                  <label>
+                    Resposta a impulso
+                    <select
+                      aria-label="Resposta a impulso"
+                      value={preset.irAsset || ""}
+                      onChange={(e) =>
+                        change({ ...preset, irAsset: e.target.value })
+                      }
+                    >
+                      <option value="" disabled>
+                        Escolha um IR
+                      </option>
+                      {Object.entries(assets)
+                        .filter(([, a]) => a.kind === "ir")
+                        .map(([id, a]) => (
+                          <option key={id} value={id}>
+                            {a.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                <button
+                  className="button secondary"
+                  onClick={() => filePicker("ir")}
+                >
+                  <Upload size={15} />
+                  Importar IR
+                </button>
+                <small>
+                  As caixas DSP são aproximações por filtros. Importe um IR para
+                  usar uma resposta medida de caixa e microfone.
+                </small>
+              </div>
+            )}
+            <div className="rig-knobs">
+              {selected !== "amp" &&
+                EFFECTS[selected].controls.map((c) => (
+                  <Knob
+                    key={c.key}
+                    control={c}
+                    value={fx.params[c.key]}
+                    onChange={(value) => param(c.key, value)}
+                  />
+                ))}
+              <Knob
+                control={{
+                  key: "inputDb",
+                  label: "Entrada geral",
+                  min: -24,
+                  max: 24,
+                  step: 0.5,
+                  initial: 0,
+                  unit: "dB",
+                }}
+                value={preset.inputDb}
+                onChange={(inputDb) => change({ ...preset, inputDb })}
+              />
+              <Knob
+                control={{
+                  key: "outputDb",
+                  label: "Saída geral",
+                  min: -60,
+                  max: 3,
+                  step: 0.5,
+                  initial: -12,
+                  unit: "dB",
+                }}
+                value={preset.outputDb}
+                onChange={(outputDb) => change({ ...preset, outputDb })}
+              />
+            </div>
+          </div>
+          <div className="rig-presetbar">
+            <label>
+              Nome do timbre
+              <input
+                aria-label="Nome do timbre"
+                maxLength={120}
+                value={preset.name}
+                onChange={(e) => change({ ...preset, name: e.target.value })}
+              />
+            </label>
+            <button className="button secondary" onClick={savePreset}>
+              <Save size={15} />
+              Salvar timbre
+            </button>
+            <button
+              className="button subtle"
+              onClick={() => change(defaultPreset())}
+            >
+              Novo
+            </button>
+            <button
+              className={`button ${preset.bypass ? "primary" : "secondary"}`}
+              aria-pressed={preset.bypass}
+              onClick={() => change({ ...preset, bypass: !preset.bypass })}
+            >
+              Bypass geral
+            </button>
+            <div className="rig-ab">
+              {(["A", "B"] as const).map((slot) => (
+                <div key={slot}>
+                  <button
+                    className={compare === slot ? "active" : ""}
+                    disabled={!(slot === "A" ? state.a : state.b)}
+                    onClick={() => switchAB(slot)}
+                    aria-label={`Ouvir timbre ${slot}`}
+                  >
+                    {slot}
+                  </button>
+                  <button
+                    title={`Guardar timbre em ${slot}`}
+                    aria-label={`Guardar timbre em ${slot}`}
+                    onClick={() => {
+                      onChange({
+                        ...state,
+                        [slot.toLowerCase()]: structuredClone(preset),
+                      });
+                      setStatus(`Timbre atual guardado em ${slot}.`);
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rig-connect-later">
+            <div className="rig-connect-heading">
+              <Mic size={18} />
+              <div>
+                <h3>Pronto para tocar?</h3>
+                <p>
+                  Os ajustes acima já ficam salvos. Conecte a entrada de áudio
+                  para ouvir a guitarra.
+                </p>
+              </div>
+            </div>
             <div className="rig-inputs">
               <label>
                 Entrada
@@ -637,674 +969,352 @@ export function RigPanel({
               monitoramento direto da interface para ouvir somente o som
               processado.
             </p>
-            <div className="rig-presetbar">
-              <label>
-                Nome do timbre
-                <input
-                  aria-label="Nome do timbre"
-                  maxLength={120}
-                  value={preset.name}
-                  onChange={(e) => change({ ...preset, name: e.target.value })}
-                />
-              </label>
-              <button className="button secondary" onClick={savePreset}>
-                <Save size={15} />
-                Salvar timbre
-              </button>
-              <button
-                className="button subtle"
-                onClick={() => change(defaultPreset())}
-              >
-                Novo
-              </button>
-              <button
-                className={`button ${preset.bypass ? "primary" : "secondary"}`}
-                aria-pressed={preset.bypass}
-                onClick={() => change({ ...preset, bypass: !preset.bypass })}
-              >
-                Bypass geral
-              </button>
-              <div className="rig-ab">
-                {(["A", "B"] as const).map((slot) => (
-                  <div key={slot}>
-                    <button
-                      className={compare === slot ? "active" : ""}
-                      disabled={!(slot === "A" ? state.a : state.b)}
-                      onClick={() => switchAB(slot)}
-                      aria-label={`Ouvir timbre ${slot}`}
-                    >
-                      {slot}
-                    </button>
-                    <button
-                      title={`Guardar timbre em ${slot}`}
-                      aria-label={`Guardar timbre em ${slot}`}
-                      onClick={() => {
-                        onChange({
-                          ...state,
-                          [slot.toLowerCase()]: structuredClone(preset),
-                        });
-                        setStatus(`Timbre atual guardado em ${slot}.`);
-                      }}
-                    >
-                      +
-                    </button>
-                  </div>
-                ))}
+          </div>
+          <div className="rig-match">
+            <div className="rig-match-heading">
+              <WandSparkles size={21} />
+              <div>
+                <h3>Encontre o timbre da gravação</h3>
+                <p>
+                  Ajuste automático experimental por comparação de áudio. O
+                  resultado é um ponto de partida para seus ajustes.
+                </p>
               </div>
+              <span className="rig-beta">EXPERIMENTAL</span>
             </div>
-            <div className="rig-pedalboard" aria-label="Cadeia de efeitos">
-              {preset.effects.map((e, index) => (
-                <div
-                  key={e.kind}
-                  className={`rig-pedal ${e.enabled ? "enabled" : ""} ${selected === e.kind ? "selected" : ""}`}
-                  style={
-                    {
-                      "--pedal-color": EFFECTS[e.kind].color,
-                    } as React.CSSProperties
-                  }
-                >
-                  <button
-                    className="rig-pedal-face"
-                    onClick={() => setSelected(e.kind)}
-                    aria-pressed={selected === e.kind}
+            <div className="rig-match-columns">
+              <div>
+                <span className="rig-step">01</span>
+                <h4>Guitarra de referência</h4>
+                <p>
+                  Escolha um trecho com a guitarra isolada e pouca mistura de
+                  outros instrumentos.
+                </p>
+                <label>
+                  Pista
+                  <select
+                    aria-label="Pista de referência"
+                    value={refTrack}
+                    onChange={(e) => selectReference(e.target.value)}
                   >
-                    <span>{String(index + 1).padStart(2, "0")}</span>
-                    <strong>{EFFECTS[e.kind].name}</strong>
-                    <i aria-hidden="true" />
-                  </button>
-                  <div className="rig-pedal-foot">
-                    <button
-                      aria-label={`${e.enabled ? "Desligar" : "Ligar"} ${EFFECTS[e.kind].name}`}
-                      aria-pressed={e.enabled}
-                      onClick={() =>
-                        change({
-                          ...preset,
-                          effects: preset.effects.map((item) =>
-                            item.kind === e.kind
-                              ? { ...item, enabled: !item.enabled }
-                              : item,
-                          ),
-                        })
-                      }
-                    >
-                      <Power size={14} />
-                    </button>
-                    <button
-                      aria-label={`Mover ${EFFECTS[e.kind].name} antes`}
-                      disabled={index === 0}
-                      onClick={() => move(e.kind, -1)}
-                    >
-                      <ArrowUp size={12} />
-                    </button>
-                    <button
-                      aria-label={`Mover ${EFFECTS[e.kind].name} depois`}
-                      disabled={index === preset.effects.length - 1}
-                      onClick={() => move(e.kind, 1)}
-                    >
-                      <ArrowDown size={12} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="rig-editor">
-              <div className="rig-editor-head">
-                <div>
-                  <span className="rig-label">AJUSTE MANUAL</span>
-                  <h3>{EFFECTS[selected].name}</h3>
-                </div>
-                <span>
-                  {fx.enabled ? "Ligado na cadeia" : "Desligado na cadeia"}
-                </span>
-              </div>
-              {selected === "amp" && (
-                <div className="rig-models">
-                  <label>
-                    Amplificador
-                    <select
-                      aria-label="Modelo do amplificador"
-                      value={preset.amp}
-                      onChange={(e) =>
-                        change({
-                          ...preset,
-                          amp: e.target.value as RigPreset["amp"],
-                        })
-                      }
-                    >
-                      <option value="clean">Clean · DSP</option>
-                      <option value="crunch">Crunch · DSP</option>
-                      <option value="highgain">High gain · DSP</option>
-                      <option
-                        value="nam"
-                        disabled={
-                          !Object.values(assets).some((a) => a.kind === "nam")
-                        }
-                      >
-                        Captura neural · NAM
-                      </option>
-                    </select>
-                  </label>
-                  {preset.amp === "nam" && (
-                    <label>
-                      Captura
-                      <select
-                        aria-label="Captura NAM"
-                        value={preset.namAsset || ""}
-                        onChange={(e) =>
-                          change({ ...preset, namAsset: e.target.value })
-                        }
-                      >
-                        <option value="" disabled>
-                          Escolha uma captura
+                    <option value="">Selecione uma pista</option>
+                    {tracks
+                      .filter((t) => t.kind !== "original")
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
                         </option>
-                        {Object.entries(assets)
-                          .filter(([, a]) => a.kind === "nam")
-                          .map(([id, a]) => (
-                            <option key={id} value={id}>
-                              {a.name}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  )}
-                  <button
-                    className="button secondary"
-                    onClick={() => filePicker("nam")}
-                  >
-                    <Upload size={15} />
-                    Importar .nam
-                  </button>
-                  <small>
-                    Capturas compatíveis com o motor Neural Amp Modeler. Modelos
-                    em 48 kHz; nenhum modelo comercial incluído.
-                  </small>
-                </div>
-              )}
-              {selected === "cabinet" && (
-                <div className="rig-models">
+                      ))}
+                  </select>
+                </label>
+                <div className="rig-ref-times">
                   <label>
-                    Caixa
-                    <select
-                      aria-label="Modelo da caixa"
-                      value={preset.cabinet}
+                    Início (s)
+                    <input
+                      type="number"
+                      aria-label="Início da referência"
+                      min={0}
+                      step={0.1}
+                      value={start}
                       onChange={(e) =>
-                        change({
-                          ...preset,
-                          cabinet: e.target.value as RigPreset["cabinet"],
-                        })
-                      }
-                    >
-                      <option value="1x12">1×12 · DSP</option>
-                      <option value="2x12">2×12 · DSP</option>
-                      <option value="4x12">4×12 · DSP</option>
-                      <option
-                        value="ir"
-                        disabled={
-                          !Object.values(assets).some((a) => a.kind === "ir")
-                        }
-                      >
-                        IR importado
-                      </option>
-                    </select>
-                  </label>
-                  {preset.cabinet === "ir" && (
-                    <label>
-                      Resposta a impulso
-                      <select
-                        aria-label="Resposta a impulso"
-                        value={preset.irAsset || ""}
-                        onChange={(e) =>
-                          change({ ...preset, irAsset: e.target.value })
-                        }
-                      >
-                        <option value="" disabled>
-                          Escolha um IR
-                        </option>
-                        {Object.entries(assets)
-                          .filter(([, a]) => a.kind === "ir")
-                          .map(([id, a]) => (
-                            <option key={id} value={id}>
-                              {a.name}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  )}
-                  <button
-                    className="button secondary"
-                    onClick={() => filePicker("ir")}
-                  >
-                    <Upload size={15} />
-                    Importar IR
-                  </button>
-                  <small>
-                    As caixas DSP são aproximações por filtros. Importe um IR
-                    para usar uma resposta medida de caixa e microfone.
-                  </small>
-                </div>
-              )}
-              <div className="rig-knobs">
-                {EFFECTS[selected].controls.map((c) => (
-                  <Knob
-                    key={c.key}
-                    control={c}
-                    value={fx.params[c.key]}
-                    onChange={(value) => param(c.key, value)}
-                  />
-                ))}
-                <Knob
-                  control={{
-                    key: "inputDb",
-                    label: "Entrada geral",
-                    min: -24,
-                    max: 24,
-                    step: 0.5,
-                    initial: 0,
-                    unit: "dB",
-                  }}
-                  value={preset.inputDb}
-                  onChange={(inputDb) => change({ ...preset, inputDb })}
-                />
-                <Knob
-                  control={{
-                    key: "outputDb",
-                    label: "Saída geral",
-                    min: -60,
-                    max: 3,
-                    step: 0.5,
-                    initial: -12,
-                    unit: "dB",
-                  }}
-                  value={preset.outputDb}
-                  onChange={(outputDb) => change({ ...preset, outputDb })}
-                />
-              </div>
-            </div>
-            <div className="rig-match">
-              <div className="rig-match-heading">
-                <WandSparkles size={21} />
-                <div>
-                  <h3>Encontre o timbre da gravação</h3>
-                  <p>
-                    Ajuste automático experimental por comparação de áudio. O
-                    resultado é um ponto de partida para seus ajustes.
-                  </p>
-                </div>
-                <span className="rig-beta">EXPERIMENTAL</span>
-              </div>
-              <div className="rig-match-columns">
-                <div>
-                  <span className="rig-step">01</span>
-                  <h4>Guitarra de referência</h4>
-                  <p>
-                    Escolha um trecho com a guitarra isolada e pouca mistura de
-                    outros instrumentos.
-                  </p>
-                  <label>
-                    Pista
-                    <select
-                      aria-label="Pista de referência"
-                      value={refTrack}
-                      onChange={(e) => selectReference(e.target.value)}
-                    >
-                      <option value="">Selecione uma pista</option>
-                      {tracks
-                        .filter((t) => t.kind !== "original")
-                        .map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <div className="rig-ref-times">
-                    <label>
-                      Início (s)
-                      <input
-                        type="number"
-                        aria-label="Início da referência"
-                        min={0}
-                        step={0.1}
-                        value={start}
-                        onChange={(e) =>
-                          selectReference(
-                            refTrack,
-                            Math.max(0, Number(e.target.value)),
-                            seconds,
-                          )
-                        }
-                      />
-                    </label>
-                    <label>
-                      Duração (s)
-                      <input
-                        type="number"
-                        aria-label="Duração da referência"
-                        min={2}
-                        max={20}
-                        step={1}
-                        value={seconds}
-                        onChange={(e) =>
-                          selectReference(
-                            refTrack,
-                            start,
-                            Math.max(2, Math.min(20, Number(e.target.value))),
-                          )
-                        }
-                      />
-                    </label>
-                    <button
-                      className="button subtle"
-                      onClick={() =>
                         selectReference(
                           refTrack,
-                          Math.floor(time * 10) / 10,
+                          Math.max(0, Number(e.target.value)),
                           seconds,
                         )
                       }
-                    >
-                      Usar posição atual
-                    </button>
-                  </div>
-                  <div className="rig-actions">
-                    <button
-                      className="button secondary"
-                      disabled={!refTrack}
-                      onClick={() =>
-                        void run("Extraindo referência", loadReference)
+                    />
+                  </label>
+                  <label>
+                    Duração (s)
+                    <input
+                      type="number"
+                      aria-label="Duração da referência"
+                      min={2}
+                      max={20}
+                      step={1}
+                      value={seconds}
+                      onChange={(e) =>
+                        selectReference(
+                          refTrack,
+                          start,
+                          Math.max(2, Math.min(20, Number(e.target.value))),
+                        )
                       }
-                    >
-                      Carregar trecho
-                    </button>
-                    <button
-                      className="button subtle"
-                      onClick={() => refInput.current?.click()}
-                    >
-                      Importar trecho
-                    </button>
-                  </div>
-                  <small>
-                    {referenceReady
-                      ? referenceName
-                      : "Trechos de 2 a 20 segundos."}
-                  </small>
+                    />
+                  </label>
+                  <button
+                    className="button subtle"
+                    onClick={() =>
+                      selectReference(
+                        refTrack,
+                        Math.floor(time * 10) / 10,
+                        seconds,
+                      )
+                    }
+                  >
+                    Usar posição atual
+                  </button>
                 </div>
-                <div>
-                  <span className="rig-step">02</span>
-                  <h4>Sua guitarra limpa</h4>
-                  <p>
-                    Grave 6 segundos sem efeitos, tocando notas e acordes
-                    parecidos. A calibração usa o sinal direto da entrada.
-                  </p>
-                  <div className="rig-actions">
-                    <button
-                      className="button secondary"
-                      disabled={!connected}
-                      onClick={() =>
-                        void run("Gravando 6 segundos", async () => {
-                          const live = ensure();
-                          const pcm = await live.record(6);
-                          if (mounted.current)
-                            await saveDI(
-                              audioBufferFrom(
-                                live.context,
-                                pcm,
-                                live.context.sampleRate,
-                              ),
-                              "Calibração · guitarra limpa.wav",
-                            );
-                        })
-                      }
-                    >
-                      <Mic size={15} />
-                      Gravar calibração
-                    </button>
-                    <button
-                      className="button subtle"
-                      onClick={() => filePicker("di")}
-                    >
-                      Importar DI limpa
-                    </button>
-                  </div>
-                  <small>
-                    {assets[state.calibrationAsset || ""]?.name ||
-                      "Calibração ainda não gravada."}
-                  </small>
-                  <div className="rig-actions">
-                    <button
-                      className="button secondary"
-                      disabled={!state.calibrationAsset}
-                      onClick={() =>
-                        void run("Abrindo calibração", async () => {
-                          await ensure().playDI(await getDI(), preset, assets);
-                          setMonitoring(ensure().monitoring);
-                        })
-                      }
-                    >
-                      <Play size={14} />
-                      Ouvir com os efeitos
-                    </button>
-                    <button
-                      className="button secondary"
-                      disabled={!referenceReady}
-                      onClick={() =>
-                        void run("Ouvindo referência", async () => {
-                          await ensure().playReference(target.current!);
-                        })
-                      }
-                    >
-                      <Play size={14} />
-                      Ouvir referência
-                    </button>
-                    <button
-                      className="button subtle"
-                      onClick={() => ensure().stopPreview()}
-                      aria-label="Parar comparação"
-                    >
-                      <Square size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="rig-match-bottom">
-                <button
-                  className="button primary"
-                  disabled={
-                    !state.calibrationAsset || (!referenceReady && !refTrack)
-                  }
-                  onClick={() => void startMatch()}
-                >
-                  <WandSparkles size={16} />
-                  Aproximar timbre
-                </button>
-                {!!refTrack && (
+                <div className="rig-actions">
                   <button
                     className="button secondary"
-                    onClick={() => muteReference(refTrack)}
+                    disabled={!refTrack}
+                    onClick={() =>
+                      void run("Extraindo referência", loadReference)
+                    }
                   >
-                    <Guitar size={15} />
-                    Silenciar guitarra da música
+                    Carregar trecho
                   </button>
-                )}
+                  <button
+                    className="button subtle"
+                    onClick={() => refInput.current?.click()}
+                  >
+                    Importar trecho
+                  </button>
+                </div>
+                <small>
+                  {referenceReady
+                    ? referenceName
+                    : "Trechos de 2 a 20 segundos."}
+                </small>
+              </div>
+              <div>
+                <span className="rig-step">02</span>
+                <h4>Sua guitarra limpa</h4>
                 <p>
-                  Compara espectro e dinâmica de renders reais da cadeia DSP.
-                  Acordes, captadores, execução e vazamento da separação
-                  influenciam o resultado. Não identifica os pedais originais.
+                  Grave 6 segundos sem efeitos, tocando notas e acordes
+                  parecidos. A calibração usa o sinal direto da entrada.
                 </p>
+                <div className="rig-actions">
+                  <button
+                    className="button secondary"
+                    disabled={!connected}
+                    onClick={() =>
+                      void run("Gravando 6 segundos", async () => {
+                        const live = ensure();
+                        const pcm = await live.record(6);
+                        if (mounted.current)
+                          await saveDI(
+                            audioBufferFrom(
+                              live.context,
+                              pcm,
+                              live.context.sampleRate,
+                            ),
+                            "Calibração · guitarra limpa.wav",
+                          );
+                      })
+                    }
+                  >
+                    <Mic size={15} />
+                    Gravar calibração
+                  </button>
+                  <button
+                    className="button subtle"
+                    onClick={() => filePicker("di")}
+                  >
+                    Importar DI limpa
+                  </button>
+                </div>
+                <small>
+                  {assets[state.calibrationAsset || ""]?.name ||
+                    "Calibração ainda não gravada."}
+                </small>
+                <div className="rig-actions">
+                  <button
+                    className="button secondary"
+                    disabled={!state.calibrationAsset}
+                    onClick={() =>
+                      void run("Abrindo calibração", async () => {
+                        await ensure().playDI(await getDI(), preset, assets);
+                        setMonitoring(ensure().monitoring);
+                      })
+                    }
+                  >
+                    <Play size={14} />
+                    Ouvir com os efeitos
+                  </button>
+                  <button
+                    className="button secondary"
+                    disabled={!referenceReady}
+                    onClick={() =>
+                      void run("Ouvindo referência", async () => {
+                        await ensure().playReference(target.current!);
+                      })
+                    }
+                  >
+                    <Play size={14} />
+                    Ouvir referência
+                  </button>
+                  <button
+                    className="button subtle"
+                    onClick={() => ensure().stopPreview()}
+                    aria-label="Parar comparação"
+                  >
+                    <Square size={14} />
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="rig-library">
-              <h3>
-                <AudioLines size={17} /> Timbres salvos{" "}
-                {tracks.length ? "nesta música" : "da pedaleira"}
-              </h3>
-              {state.saved.length ? (
-                <div className="rig-saved">
-                  {state.saved.map((s) => (
-                    <div key={s.id}>
-                      <button onClick={() => change(structuredClone(s.preset))}>
-                        {s.preset.name}
-                        <small>
-                          {s.preset.amp} · {s.preset.cabinet}
-                        </small>
-                      </button>
+            <div className="rig-match-bottom">
+              <button
+                className="button primary"
+                disabled={
+                  !state.calibrationAsset || (!referenceReady && !refTrack)
+                }
+                onClick={() => void startMatch()}
+              >
+                <WandSparkles size={16} />
+                Aproximar timbre
+              </button>
+              {!!refTrack && (
+                <button
+                  className="button secondary"
+                  onClick={() => muteReference(refTrack)}
+                >
+                  <Guitar size={15} />
+                  Silenciar guitarra da música
+                </button>
+              )}
+              <p>
+                Compara espectro e dinâmica de renders reais da cadeia DSP.
+                Acordes, captadores, execução e vazamento da separação
+                influenciam o resultado. Não identifica os pedais originais.
+              </p>
+            </div>
+          </div>
+          <div className="rig-library">
+            <h3>
+              <AudioLines size={17} /> Timbres salvos{" "}
+              {tracks.length ? "nesta música" : "da pedaleira"}
+            </h3>
+            {state.saved.length ? (
+              <div className="rig-saved">
+                {state.saved.map((s) => (
+                  <div key={s.id}>
+                    <button onClick={() => change(structuredClone(s.preset))}>
+                      {s.preset.name}
+                      <small>
+                        {s.preset.amp} · {s.preset.cabinet}
+                      </small>
+                    </button>
+                    <button
+                      aria-label={`Excluir timbre ${s.preset.name}`}
+                      onClick={() =>
+                        onChange({
+                          ...state,
+                          saved: state.saved.filter((item) => item.id !== s.id),
+                        })
+                      }
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>
+                Salve timbres de base, solo e outras variações para esta sessão.
+              </p>
+            )}
+            <div className="rig-actions">
+              <button
+                className="button subtle"
+                onClick={() =>
+                  download(
+                    new Blob([JSON.stringify(preset, null, 2)], {
+                      type: "application/json",
+                    }),
+                    `${preset.name.replace(/[^\p{L}\p{N}_-]/gu, "_")}.json`,
+                  )
+                }
+              >
+                Exportar preset JSON
+              </button>
+              <button
+                className="button subtle"
+                onClick={() => presetInput.current?.click()}
+              >
+                Importar preset JSON
+              </button>
+              <small>
+                O projeto .riffsync inclui também os arquivos NAM, IR e a
+                calibração.
+              </small>
+            </div>
+            {Object.entries(assets).some(([, a]) => a.kind !== "di") && (
+              <details>
+                <summary>Arquivos de timbre importados</summary>
+                {Object.entries(assets)
+                  .filter(([, a]) => a.kind !== "di")
+                  .map(([id, a]) => (
+                    <div key={id} className="rig-file">
+                      <span>
+                        {a.kind.toUpperCase()} · {a.name}
+                      </span>
                       <button
-                        aria-label={`Excluir timbre ${s.preset.name}`}
-                        onClick={() =>
-                          onChange({
-                            ...state,
-                            saved: state.saved.filter(
-                              (item) => item.id !== s.id,
-                            ),
-                          })
+                        className="button subtle"
+                        disabled={inUse(id)}
+                        title={
+                          inUse(id)
+                            ? "Usado pelo timbre atual, A/B ou um preset salvo"
+                            : "Remover arquivo"
                         }
+                        onClick={() => {
+                          const next = { ...assets };
+                          delete next[id];
+                          onAssets(next);
+                        }}
                       >
-                        <Trash2 size={14} />
+                        <X size={14} />
+                        Remover
                       </button>
                     </div>
                   ))}
-                </div>
-              ) : (
-                <p>
-                  Salve timbres de base, solo e outras variações para esta
-                  sessão.
-                </p>
-              )}
-              <div className="rig-actions">
-                <button
-                  className="button subtle"
-                  onClick={() =>
-                    download(
-                      new Blob([JSON.stringify(preset, null, 2)], {
-                        type: "application/json",
-                      }),
-                      `${preset.name.replace(/[^\p{L}\p{N}_-]/gu, "_")}.json`,
-                    )
-                  }
-                >
-                  Exportar preset JSON
-                </button>
-                <button
-                  className="button subtle"
-                  onClick={() => presetInput.current?.click()}
-                >
-                  Importar preset JSON
-                </button>
-                <small>
-                  O projeto .riffsync inclui também os arquivos NAM, IR e a
-                  calibração.
-                </small>
-              </div>
-              {Object.entries(assets).some(([, a]) => a.kind !== "di") && (
-                <details>
-                  <summary>Arquivos de timbre importados</summary>
-                  {Object.entries(assets)
-                    .filter(([, a]) => a.kind !== "di")
-                    .map(([id, a]) => (
-                      <div key={id} className="rig-file">
-                        <span>
-                          {a.kind.toUpperCase()} · {a.name}
-                        </span>
-                        <button
-                          className="button subtle"
-                          disabled={inUse(id)}
-                          title={
-                            inUse(id)
-                              ? "Usado pelo timbre atual, A/B ou um preset salvo"
-                              : "Remover arquivo"
-                          }
-                          onClick={() => {
-                            const next = { ...assets };
-                            delete next[id];
-                            onAssets(next);
-                          }}
-                        >
-                          <X size={14} />
-                          Remover
-                        </button>
-                      </div>
-                    ))}
-                </details>
-              )}
-            </div>
-          </fieldset>
-          {connected && !!working && (
-            <div className="rig-emergency">
-              <button className="button secondary" onClick={disconnect}>
-                Desconectar entrada e retorno
-              </button>
-            </div>
-          )}
-          {working && (
-            <div className="rig-working" role="status">
-              <LoaderCircle size={16} className="spin" />
-              {working}
-              {working === "Comparando timbres" ? ` · ${progress}%` : "…"}
-              {working === "Comparando timbres" && (
-                <button
-                  className="button secondary"
-                  onClick={() => matching.current?.abort()}
-                >
-                  Cancelar
-                </button>
-              )}
-            </div>
-          )}
-          {error && (
-            <div className="rig-error" role="alert">
-              {error}
+              </details>
+            )}
+          </div>
+        </fieldset>
+        {connected && !!working && (
+          <div className="rig-emergency">
+            <button className="button secondary" onClick={disconnect}>
+              Desconectar entrada e retorno
+            </button>
+          </div>
+        )}
+        {working && (
+          <div className="rig-working" role="status">
+            <LoaderCircle size={16} className="spin" />
+            {working}
+            {working === "Comparando timbres" ? ` · ${progress}%` : "…"}
+            {working === "Comparando timbres" && (
               <button
-                aria-label="Fechar erro da pedaleira"
-                onClick={() => setError("")}
+                className="button secondary"
+                onClick={() => matching.current?.abort()}
               >
-                <X size={14} />
+                Cancelar
               </button>
-            </div>
-          )}
-          {report && <p className="rig-report">{report}</p>}
-          {status && (
-            <p className="rig-status" role="status">
-              {status}
-            </p>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
+        {error && (
+          <div className="rig-error" role="alert">
+            {error}
+            <button
+              aria-label="Fechar erro da pedaleira"
+              onClick={() => setError("")}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+        {report && <p className="rig-report">{report}</p>}
+        {status && (
+          <p className="rig-status" role="status">
+            {status}
+          </p>
+        )}
+      </div>
     </section>
-  );
-}
-function Knob({
-  control: c,
-  value,
-  onChange,
-}: {
-  control: Control;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  const percent = (value - c.min) / (c.max - c.min),
-    angle = -135 + percent * 270;
-  return (
-    <label className="rig-knob">
-      <span
-        className="rig-knob-dial"
-        style={{ "--knob-angle": `${angle}deg` } as React.CSSProperties}
-      >
-        <i />
-      </span>
-      <span>{c.label}</span>
-      <output>
-        {Number.isInteger(value) ? value : value.toFixed(c.step < 0.1 ? 2 : 1)}{" "}
-        {c.unit}
-      </output>
-      <input
-        type="range"
-        aria-label={c.label}
-        min={c.min}
-        max={c.max}
-        step={c.step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-    </label>
   );
 }

@@ -89,7 +89,6 @@ export default function App() {
   const [draftRig, setDraftRig] = useState(defaultRig);
   const [draftAssets, setDraftAssets] = useState<RigAssets>({});
   const [draftReady, setDraftReady] = useState(false);
-  const [rigExpanded, setRigExpanded] = useState(false);
   const [waveforms, setWaveforms] = useState<Record<string, number[]>>({});
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedTrack, setSelectedTrack] = useState("");
@@ -1017,7 +1016,6 @@ export default function App() {
           <button
             className="nav-item"
             onClick={() => {
-              setRigExpanded(true);
               setPanel("none");
               setTimeout(
                 () =>
@@ -1152,6 +1150,109 @@ export default function App() {
               <Plus size={18} /> Nova música
             </button>
           </section>
+
+          <RigPanel
+            key={project?.id || "standalone"}
+            state={project?.rig || draftRig}
+            assets={project ? rigAssets : draftAssets}
+            tracks={project?.tracks || []}
+            time={time}
+            onChange={(rig) => {
+              if (project) update((p) => ({ ...p, rig }));
+              else setDraftRig(rig);
+            }}
+            onAssets={(assets) => {
+              if (project) setRigAssets(assets);
+              else setDraftAssets(assets);
+            }}
+            routing={() => engine.current.rigRouting()}
+            muteReference={(id) =>
+              update((p) => ({
+                ...p,
+                tracks: p.tracks.map((t) =>
+                  t.id === id || t.kind === "original"
+                    ? { ...t, muted: true, solo: false }
+                    : { ...t, solo: false },
+                ),
+              }))
+            }
+            reference={async (id, start, seconds, signal) => {
+              const p = projectRef.current,
+                track = p?.tracks.find((t) => t.id === id);
+              if (!p || !track)
+                throw new Error("Pista de referência indisponível.");
+              const ctx = engine.current.rigRouting().context,
+                existing = engine.current.buffers.get(id);
+              signal.throwIfAborted();
+              if (existing) {
+                const length = Math.min(
+                  Math.floor(seconds * existing.sampleRate),
+                  existing.length - Math.floor(start * existing.sampleRate),
+                );
+                if (length <= 0)
+                  throw new Error("O trecho começa após o fim da pista.");
+                const clip = ctx.createBuffer(
+                  existing.numberOfChannels,
+                  length,
+                  existing.sampleRate,
+                );
+                for (let c = 0; c < clip.numberOfChannels; c++)
+                  clip.copyToChannel(
+                    existing
+                      .getChannelData(c)
+                      .slice(
+                        Math.floor(start * existing.sampleRate),
+                        Math.floor(start * existing.sampleRate) + length,
+                      ),
+                    c,
+                  );
+                return clip;
+              }
+              if (p.jobId && track.filename && track.kind !== "original") {
+                const blob = await referenceExcerpt(
+                  p.jobBase || apiBase,
+                  p.jobId,
+                  track.filename,
+                  start,
+                  seconds,
+                  signal,
+                );
+                signal.throwIfAborted();
+                return ctx.decodeAudioData(await blob.arrayBuffer());
+              }
+              const blob = filesRef.current[id];
+              if (!blob)
+                throw new Error(
+                  "Recupere a pista antes de usá-la como referência.",
+                );
+              if (p.duration > 45 || blob.size > 15 * 1024 ** 2)
+                throw new Error(
+                  "Para essa pista longa, conecte o servidor que fez a separação ou importe um trecho curto na pedaleira.",
+                );
+              const decoded = await ctx.decodeAudioData(
+                await blob.arrayBuffer(),
+              );
+              signal.throwIfAborted();
+              const left = Math.floor(start * decoded.sampleRate),
+                length = Math.min(
+                  decoded.length - left,
+                  Math.floor(seconds * decoded.sampleRate),
+                );
+              if (length <= 0)
+                throw new Error("O trecho começa após o fim da pista.");
+              const clip = ctx.createBuffer(
+                decoded.numberOfChannels,
+                length,
+                decoded.sampleRate,
+              );
+              for (let c = 0; c < clip.numberOfChannels; c++)
+                clip.copyToChannel(
+                  decoded.getChannelData(c).slice(left, left + length),
+                  c,
+                );
+              return clip;
+            }}
+          />
 
           {!project && (
             <section
@@ -1693,110 +1794,6 @@ export default function App() {
             )}
           </section>
 
-          <RigPanel
-            key={project?.id || "standalone"}
-            state={project?.rig || draftRig}
-            assets={project ? rigAssets : draftAssets}
-            tracks={project?.tracks || []}
-            time={time}
-            expanded={rigExpanded}
-            onExpand={() => setRigExpanded((v) => !v)}
-            onChange={(rig) => {
-              if (project) update((p) => ({ ...p, rig }));
-              else setDraftRig(rig);
-            }}
-            onAssets={(assets) => {
-              if (project) setRigAssets(assets);
-              else setDraftAssets(assets);
-            }}
-            routing={() => engine.current.rigRouting()}
-            muteReference={(id) =>
-              update((p) => ({
-                ...p,
-                tracks: p.tracks.map((t) =>
-                  t.id === id || t.kind === "original"
-                    ? { ...t, muted: true, solo: false }
-                    : { ...t, solo: false },
-                ),
-              }))
-            }
-            reference={async (id, start, seconds, signal) => {
-              const p = projectRef.current,
-                track = p?.tracks.find((t) => t.id === id);
-              if (!p || !track)
-                throw new Error("Pista de referência indisponível.");
-              const ctx = engine.current.rigRouting().context,
-                existing = engine.current.buffers.get(id);
-              signal.throwIfAborted();
-              if (existing) {
-                const length = Math.min(
-                  Math.floor(seconds * existing.sampleRate),
-                  existing.length - Math.floor(start * existing.sampleRate),
-                );
-                if (length <= 0)
-                  throw new Error("O trecho começa após o fim da pista.");
-                const clip = ctx.createBuffer(
-                  existing.numberOfChannels,
-                  length,
-                  existing.sampleRate,
-                );
-                for (let c = 0; c < clip.numberOfChannels; c++)
-                  clip.copyToChannel(
-                    existing
-                      .getChannelData(c)
-                      .slice(
-                        Math.floor(start * existing.sampleRate),
-                        Math.floor(start * existing.sampleRate) + length,
-                      ),
-                    c,
-                  );
-                return clip;
-              }
-              if (p.jobId && track.filename && track.kind !== "original") {
-                const blob = await referenceExcerpt(
-                  p.jobBase || apiBase,
-                  p.jobId,
-                  track.filename,
-                  start,
-                  seconds,
-                  signal,
-                );
-                signal.throwIfAborted();
-                return ctx.decodeAudioData(await blob.arrayBuffer());
-              }
-              const blob = filesRef.current[id];
-              if (!blob)
-                throw new Error(
-                  "Recupere a pista antes de usá-la como referência.",
-                );
-              if (p.duration > 45 || blob.size > 15 * 1024 ** 2)
-                throw new Error(
-                  "Para essa pista longa, conecte o servidor que fez a separação ou importe um trecho curto na pedaleira.",
-                );
-              const decoded = await ctx.decodeAudioData(
-                await blob.arrayBuffer(),
-              );
-              signal.throwIfAborted();
-              const left = Math.floor(start * decoded.sampleRate),
-                length = Math.min(
-                  decoded.length - left,
-                  Math.floor(seconds * decoded.sampleRate),
-                );
-              if (length <= 0)
-                throw new Error("O trecho começa após o fim da pista.");
-              const clip = ctx.createBuffer(
-                decoded.numberOfChannels,
-                length,
-                decoded.sampleRate,
-              );
-              for (let c = 0; c < clip.numberOfChannels; c++)
-                clip.copyToChannel(
-                  decoded.getChannelData(c).slice(left, left + length),
-                  c,
-                );
-              return clip;
-            }}
-          />
           <section className="notation-section">
             <div className="section-heading">
               <div>

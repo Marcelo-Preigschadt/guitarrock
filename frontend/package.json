@@ -1,6 +1,6 @@
 {
   "name": "riffsync-studio",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -36,6 +36,8 @@
     "neural-amp-modeler-wasm": {
       "react": "$react",
       "react-dom": "$react-dom"
-    }
+    },
+    "@use-gesture/react": "10.3.1",
+    "@use-gesture/core": "10.3.1"
   }
 }

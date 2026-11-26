@@ -28,6 +28,11 @@ if (
     { stdio: "inherit" },
   );
   if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status || 1);
+  if (result.status !== 0) {
+    console.error(
+      "A atualização da interface falhou. O servidor pode continuar exibindo a versão anterior; confira o erro npm acima antes de reiniciar.",
+    );
+    process.exit(result.status || 1);
+  }
   writeFileSync(marker, digest);
 }

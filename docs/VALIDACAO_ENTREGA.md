@@ -67,3 +67,11 @@ A guitarra física, os drivers e a latência de ida e volta do equipamento do us
 Fontes técnicas: [NAM WASM](https://github.com/tone-3000/neural-amp-modeler-wasm), [AudioWorklet](https://developer.mozilla.org/en-US/docs/Web/API/AudioWorklet), [OfflineAudioContext](https://developer.mozilla.org/en-US/docs/Web/API/OfflineAudioContext) e [getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia). As pesquisas AutoFX/TAPE serviram para avaliar os limites da proposta; não há seus pesos ou código de inferência neste recurso.
 
 Validação final da versão 0.4.0: **41 testes Python 3.11 e 46 testes TypeScript aprovados**, build de produção aprovado, instalação limpa de dependências e checagem de sintaxe dos scripts aprovadas.
+
+## Versão 0.4.1 — equipamentos visíveis e instalação no Codespace
+
+A tela passa a mostrar a pedaleira aberta no início do estúdio, sem upload e sem conexão de áudio. Cabeçote com seis controles e modos Clean/Crunch/High gain; três gabinetes visuais selecionáveis; treze pedais em grade com seus controles, footswitch e ordem editável. Amplificador e gabinete continuam sendo os dois outros módulos da cadeia original de quinze. Os ajustes alteram os mesmos parâmetros DSP e a conexão fica abaixo do equipamento.
+
+Na sessão real do usuário, o terminal mostrou que a atualização anterior falhou com HTTP 404 para `@use-gesture/react` e `@use-gesture/core` 10.4.0. O app permaneceu na 0.3.1 porque o reinício parou antes de recompilar. As duas dependências foram fixadas em **10.3.1**, com tarballs e integridades conferidos pelo npm do próprio Codespace. O lockfile usa as versões publicadas e o instalador informa explicitamente quando falha e a versão antiga pode continuar sendo exibida.
+
+Validação local: instalação limpa, compilação TypeScript/build e 46 testes TypeScript; navegador sem conectar áudio confirmou treze pedais renderizados, troca de amp, ganho, caixa 4×12 e footswitch/drive do Overdrive habilitados e operantes.

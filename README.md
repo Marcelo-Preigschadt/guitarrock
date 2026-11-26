@@ -37,7 +37,7 @@ Estúdio web para carregar uma gravação, separar instrumentos e gerar automati
 
 ## Pedaleira e timbre — v0.4.0
 
-Abra **Pedaleira e timbre** no menu lateral. Funciona também sem carregar uma música e não exige servidor para processar a guitarra ao vivo.
+A pedaleira aparece aberta no início do estúdio, antes de carregar música ou conectar um dispositivo. Cabeçote, caixas e pedais têm controles próprios; o menu **Pedaleira e timbre** leva diretamente a eles. A conexão de áudio fica depois dos equipamentos.
 
 1. Ligue a guitarra à entrada de instrumento de uma interface de áudio. Escolha a entrada e o canal 1 ou 2, clique em **Conectar guitarra** e permita a entrada de áudio. O app solicita áudio sem cancelamento de eco, redução de ruído ou ganho automático. O navegador pode ignorar essas preferências conforme o dispositivo.
 2. Clique em **Ativar retorno**. A captura inicia com retorno desligado e saída em −12 dB. Use fones e desative o monitoramento direto da interface para não ouvir os dois caminhos.
@@ -119,7 +119,7 @@ Na raiz do repositório:
 git pull --ff-only && python3 scripts/restart.py
 ```
 
-Esse comando instala o reconhecimento de letra se estiver ausente, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.4.0**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
+Esse comando instala o reconhecimento de letra se estiver ausente, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.4.1**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
 
 API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Não apague os dados do site no navegador: os projetos e a chave de acesso às tarefas são armazenados ali.
 

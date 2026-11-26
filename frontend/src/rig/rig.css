@@ -576,3 +576,690 @@
   padding: 12px 22px;
   background: #35251e;
 }
+/* Equipment is visible and editable before the audio input is connected. */
+.rig-preview-note {
+  margin: 0;
+  padding: 12px 22px 0;
+  color: #a5b79b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.rig-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 20px;
+  padding: 28px 22px 18px;
+  background: radial-gradient(ellipse at top, #2d3435 0, #151a1c 75%);
+}
+.rig-amp-head {
+  position: relative;
+  border: 8px solid #171b1b;
+  border-radius: 11px;
+  background: repeating-linear-gradient(25deg, #222727 0 1px, #1b2021 1px 3px);
+  box-shadow:
+    0 8px 15px #0007,
+    inset 0 0 0 1px #555a54;
+  align-self: start;
+  min-width: 0;
+}
+.rig-amp-handle {
+  position: absolute;
+  left: 34%;
+  top: -19px;
+  width: 32%;
+  height: 12px;
+  border: 4px solid #101414;
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 -2px 0 #6d746e;
+}
+.rig-amp-grille {
+  height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  background:
+    repeating-linear-gradient(0deg, #ffffff05 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, #0005 0 1px, transparent 1px 4px);
+  position: relative;
+  border-bottom: 3px solid #070a0a;
+}
+.rig-amp-logo {
+  font:
+    700 25px Manrope,
+    sans-serif;
+  letter-spacing: -1.5px;
+  color: #dcd6c3;
+  text-shadow: 1px 2px #000;
+}
+.rig-amp-logo > span {
+  font-weight: 400;
+}
+.rig-amp-model {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  color: #d7ceb7;
+  border: 1px solid #7b7b674f;
+  border-radius: 3px;
+  padding: 5px 7px;
+}
+.rig-amp-badge {
+  position: absolute;
+  bottom: 7px;
+  left: 17px;
+  color: #888e80;
+  font-size: 7px;
+  letter-spacing: 1.5px;
+}
+.rig-amp-controls {
+  padding: 12px 12px 8px;
+  background: linear-gradient(100deg, #685d42, #b0a179 45%, #706345);
+  box-shadow: inset 0 1px 0 #ded8bd;
+  border-radius: 0 0 4px 4px;
+}
+.rig-amp-toprow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.rig-amp-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.rig-amp-models button {
+  background: #312e25;
+  color: #d2c8ad;
+  border: 1px solid #312d21;
+  border-radius: 3px;
+  padding: 5px 8px;
+  font:
+    10px Manrope,
+    sans-serif;
+}
+.rig-amp-models button.active {
+  background: #1a2115;
+  color: #d4eea7;
+  border-color: #131a0e;
+  box-shadow: inset 0 0 0 1px #748e49;
+}
+.rig-amp-power {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #312e25;
+  border: 1px solid #201f17;
+  color: #a5a18d;
+  border-radius: 3px;
+  padding: 5px;
+}
+.rig-amp-power > i {
+  width: 7px;
+  height: 7px;
+  background: #555144;
+  border: 1px solid #161a13;
+  border-radius: 50%;
+}
+.rig-amp-head.powered .rig-amp-power > i {
+  background: #cced81;
+  box-shadow: 0 0 8px #b4de69;
+}
+.rig-amp-knobs {
+  display: flex;
+  gap: 5px;
+  justify-content: space-between;
+}
+.rig-body .rig-amp-knobs .rig-knob {
+  width: calc((100% - 25px) / 6);
+  font-size: 9px;
+  gap: 5px;
+  color: #1c201b;
+  min-width: 0;
+}
+.rig-amp-knobs .rig-knob > span:not(.rig-knob-dial) {
+  font-weight: 700;
+  min-height: 12px;
+}
+.rig-amp-knobs .rig-knob-dial {
+  width: 34px;
+  height: 34px;
+  border-color: #22281f;
+  background: linear-gradient(135deg, #4b5044, #131a12);
+  box-shadow:
+    1px 3px 4px #0006,
+    inset 0 0 0 3px #282e25;
+}
+.rig-amp-knobs .rig-knob-dial i {
+  left: 14px;
+  top: 3px;
+  height: 8px;
+  transform-origin: 1px 12px;
+  background: #e4dec1;
+}
+.rig-amp-knobs .rig-knob output {
+  color: #1b2416;
+  font-size: 9px;
+  font-weight: 600;
+}
+.rig-amp-knobs .rig-knob input[type="range"] {
+  width: 100%;
+  max-width: 60px;
+  accent-color: #29351f;
+}
+.rig-rack-order {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 9px;
+  margin-top: 10px;
+  color: #8b9c99;
+}
+.rig-rack-order span {
+  margin-right: auto;
+}
+.rig-rack-order button {
+  border: 0;
+  background: #0002;
+  color: inherit;
+  border-radius: 3px;
+  padding: 3px 5px;
+}
+.rig-amp-controls .rig-rack-order {
+  color: #26301f;
+}
+.rig-rack-details {
+  font-size: 10px;
+  background: none;
+  border: 0;
+  padding: 6px 0 0;
+  color: #afc49d;
+  text-align: left;
+}
+.rig-amp-controls .rig-rack-details {
+  color: #202a18;
+  font-weight: 600;
+}
+.rig-cabinets {
+  background: #121718;
+  padding: 14px;
+  border: 1px solid #39433d;
+  border-radius: 8px;
+  min-width: 0;
+}
+.rig-cabinets-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.rig-cabinets-heading span {
+  font-size: 8px;
+  color: #9fb97f;
+  letter-spacing: 1.5px;
+}
+.rig-cabinets-heading h3 {
+  font-size: 13px;
+  margin: 6px 0 0;
+  color: #cedad3;
+}
+.rig-cab-power {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #202a20;
+  border: 1px solid #3b4937;
+  border-radius: 4px;
+  padding: 5px;
+  color: #b4cd9d;
+  font-size: 9px;
+}
+.rig-cab-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.rig-cab-option {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: #97a99e;
+  padding: 8px 4px;
+}
+.rig-cab-option.selected {
+  background: #bddc7612;
+  border-color: #a9cd667a;
+  color: #d1ed9e;
+}
+.rig-cab-option > strong {
+  font-size: 13px;
+}
+.rig-cab-option > small {
+  font-size: 8px;
+  color: #819077;
+  line-height: 1.5;
+  text-align: center;
+}
+.rig-cab-box {
+  height: 96px;
+  width: 100%;
+  max-width: 90px;
+  display: block;
+  padding: 13px 9px 9px;
+  position: relative;
+  border: 5px solid #30332c;
+  border-bottom-width: 8px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(90deg, #7b7b5930 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, #9d987322 0 1px, transparent 1px 3px),
+    #151a16;
+  box-shadow:
+    2px 5px 6px #0009,
+    inset 0 0 0 1px #70755d;
+}
+.rig-cab-mark {
+  position: absolute;
+  top: 1px;
+  left: 0;
+  width: 100%;
+  font:
+    700 8px Manrope,
+    sans-serif;
+  letter-spacing: 1px;
+  color: #b1b795;
+  text-align: center;
+}
+.rig-speakers {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  align-items: center;
+  justify-items: center;
+}
+.speakers-4 .rig-speakers {
+  grid-template-columns: 1fr 1fr;
+}
+.rig-speakers > i {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  width: 100%;
+  max-height: 100%;
+  max-width: 52px;
+  background: radial-gradient(
+    circle,
+    #1a1d19 20%,
+    #394034 22%,
+    #161d15 28%,
+    #30372c 50%,
+    #141a14 55%,
+    #343c2d 70%,
+    #0c110b 74%
+  );
+  border-radius: 100%;
+  border: 1px solid #444a3977;
+  box-shadow: inset 0 0 4px #000;
+}
+.rig-speakers b {
+  display: block;
+  width: 24%;
+  aspect-ratio: 1;
+  border-radius: 100%;
+  background: #343b2e;
+  box-shadow: inset 0 1px 2px #89916b55;
+}
+.speakers-2 .rig-speakers {
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+}
+.rig-cab-corner {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #707664;
+}
+.rig-cab-corner.top-left {
+  top: -3px;
+  left: -3px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.rig-cab-corner.bottom-right {
+  bottom: -5px;
+  right: -3px;
+  border-left: 0;
+  border-top: 0;
+}
+.rig-current-ir {
+  font-size: 10px;
+  color: #aacd8f;
+  overflow-wrap: anywhere;
+}
+.rig-signal-order {
+  grid-column: 1/-1;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 9px;
+  color: #8b9f91;
+}
+.rig-signal-order > span {
+  letter-spacing: 1.4px;
+  font-size: 8px;
+}
+.rig-signal-order ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.rig-signal-order li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.rig-signal-order li + li:before {
+  content: "›";
+  color: #788571;
+}
+.rig-signal-order button {
+  border: 1px solid #46533e;
+  border-radius: 4px;
+  background: #273023;
+  color: #b7cc9e;
+  font:
+    9px Manrope,
+    sans-serif;
+  padding: 4px 6px;
+}
+.rig-board-heading {
+  padding: 10px 22px 12px;
+  background: #111718;
+  border-top: 1px solid #35403a;
+}
+.rig-board-heading > span {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: #c5f16d;
+}
+.rig-board-heading > p {
+  margin: 7px 0 0;
+  font-size: 11px;
+  color: #8da096;
+  line-height: 1.6;
+}
+.rig-pedalboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 18px 15px;
+  overflow: visible;
+  background:
+    repeating-linear-gradient(0deg, #0003 0 3px, transparent 3px 24px),
+    radial-gradient(ellipse at top, #283033, #141a1b);
+  padding: 22px;
+}
+.rig-pedal {
+  width: auto;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--pedal-color) 40%, #181f20);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--pedal-color) 28%, #22282a),
+    color-mix(in srgb, var(--pedal-color) 11%, #1d2325)
+  );
+  box-shadow:
+    2px 5px 6px #0007,
+    inset 0 1px 0 #ffffff24;
+  border-bottom-width: 5px;
+  position: relative;
+}
+.rig-pedal.enabled {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--pedal-color) 55%, #1e2525),
+    color-mix(in srgb, var(--pedal-color) 28%, #172022)
+  );
+}
+.rig-pedal-face {
+  min-height: 67px;
+  gap: 5px;
+  padding: 11px 11px 7px;
+}
+.rig-pedal-face strong {
+  color: color-mix(in srgb, var(--pedal-color) 75%, #fff);
+  min-height: 16px;
+  font-size: 12px;
+}
+.rig-pedal.enabled strong {
+  color: #f2f6e8;
+}
+.rig-pedal-face > i {
+  width: 5px;
+  height: 5px;
+  position: absolute;
+  right: 12px;
+  top: 13px;
+  margin: 0;
+}
+.rig-pedal-face > span {
+  font-size: 8px;
+  color: #a5b5a6;
+}
+.rig-mini-knobs {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 6px 9px;
+}
+.rig-body .rig-mini-knobs .rig-knob {
+  width: calc((100% - 10px) / 3);
+  min-width: 0;
+  gap: 4px;
+  font-size: 8px;
+}
+.rig-mini-knobs .rig-knob > span:not(.rig-knob-dial) {
+  font-size: 8px;
+  line-height: 1.4;
+  min-height: 22px;
+  color: #d0dcce;
+}
+.rig-mini-knobs .rig-knob output {
+  font-size: 8px;
+  color: #cedabf;
+  white-space: nowrap;
+}
+.rig-mini-knobs .rig-knob input[type="range"] {
+  width: 100%;
+  height: 9px;
+  accent-color: var(--pedal-color);
+}
+.rig-mini-knobs .rig-knob-dial {
+  width: 26px;
+  height: 26px;
+  border: 1px solid #82927c;
+  background: linear-gradient(135deg, #414b40, #151d16);
+  box-shadow:
+    1px 2px 3px #0008,
+    inset 0 0 0 3px #212a22;
+}
+.rig-mini-knobs .rig-knob-dial i {
+  left: 11px;
+  top: 2px;
+  height: 7px;
+  transform-origin: 1px 10px;
+  background: var(--pedal-color);
+}
+.rig-pedal-foot {
+  padding: 7px;
+  align-items: center;
+  justify-content: space-between;
+  background:
+    repeating-linear-gradient(0deg, #0004 0 2px, transparent 2px 4px), #17201d66;
+}
+.rig-pedal-foot button:first-child {
+  width: 31px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+  border: 3px solid #b1b4a455;
+  background: radial-gradient(circle at 35% 30%, #8c9586, #30382e 70%);
+  border-radius: 50%;
+  color: #d7e3cc;
+  box-shadow: 0 3px 2px #0007;
+  padding: 0;
+}
+.rig-pedal-foot button:first-child svg {
+  width: 11px;
+  height: 11px;
+}
+.rig-pedal-foot button:not(:first-child) {
+  padding: 7px 4px;
+}
+.rig-pedal-foot button:first-child:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+.rig-connect-later {
+  border-top: 1px solid #364239;
+  background: #171e1c;
+  padding-top: 20px;
+}
+.rig-connect-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 22px;
+  color: #adc789;
+}
+.rig-connect-heading h3 {
+  font-size: 14px;
+  color: #dae5d6;
+  margin: 0 0 6px;
+}
+.rig-connect-heading p {
+  font-size: 11px;
+  color: #8f9d91;
+  margin: 0;
+  line-height: 1.6;
+}
+@media (max-width: 1100px) {
+  .rig-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rig-amp-grille {
+    height: 65px;
+  }
+  .rig-cabinets {
+    max-width: 100%;
+  }
+  .rig-cab-box {
+    height: 105px;
+    max-width: 120px;
+  }
+  .rig-amp-knobs .rig-knob input[type="range"] {
+    max-width: 70px;
+  }
+  .rig-pedalboard {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .rig-stage {
+    padding: 26px 14px 16px;
+    gap: 18px;
+  }
+  .rig-amp-controls {
+    padding: 11px 8px 7px;
+  }
+  .rig-amp-models button {
+    font-size: 8px;
+    padding: 5px;
+  }
+  .rig-amp-grille {
+    padding: 10px;
+    height: 70px;
+  }
+  .rig-amp-logo {
+    font-size: 22px;
+  }
+  .rig-amp-model {
+    font-size: 9px;
+  }
+  .rig-body .rig-amp-knobs .rig-knob {
+    width: calc((100% - 10px) / 3);
+  }
+  .rig-amp-knobs {
+    flex-wrap: wrap;
+    gap: 10px 5px;
+  }
+  .rig-amp-knobs .rig-knob-dial {
+    width: 33px;
+    height: 33px;
+  }
+  .rig-cabinets {
+    padding: 12px 8px;
+  }
+  .rig-cab-options {
+    gap: 4px;
+  }
+  .rig-cab-box {
+    height: 90px;
+    max-width: 85px;
+    padding: 13px 6px 6px;
+    border-width: 4px;
+  }
+  .rig-cab-option {
+    padding: 7px 2px;
+  }
+  .rig-cab-option > small {
+    font-size: 7px;
+  }
+  .rig-cabinets-heading h3 {
+    font-size: 12px;
+  }
+  .rig-pedalboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 10px;
+    padding: 16px 12px;
+  }
+  .rig-body .rig-mini-knobs .rig-knob {
+    width: calc((100% - 6px) / 3);
+  }
+  .rig-mini-knobs {
+    gap: 3px;
+    padding: 0 5px 8px;
+  }
+  .rig-mini-knobs .rig-knob output {
+    font-size: 7px;
+  }
+  .rig-board-heading,
+  .rig-preview-note {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .rig-rack-order {
+    font-size: 8px;
+  }
+  .rig-pedal-face strong {
+    font-size: 11px;
+  }
+  .rig-amp-toprow {
+    gap: 4px;
+  }
+  .rig-amp-controls .rig-rack-details {
+    font-size: 9px;
+  }
+}
