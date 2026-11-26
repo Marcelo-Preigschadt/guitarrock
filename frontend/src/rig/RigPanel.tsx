@@ -31,6 +31,9 @@ import {
 } from "./types";
 import { Knob } from "./ControlKnob";
 import { GearRack } from "./GearRack";
+import { ClassicAmps } from "./ClassicAmps";
+import { ampProfile, CLASSIC_AMPS } from "./ampProfiles";
+import { classicPreset } from "./factoryPresets";
 import "./rig.css";
 
 type Props = {
@@ -500,6 +503,7 @@ export function RigPanel({
             Pedais, amplificador e caixas disponíveis sem conectar nenhum
             dispositivo.
           </p>
+          <ClassicAmps preset={preset} change={change} />
           <GearRack
             preset={preset}
             assets={assets}
@@ -618,17 +622,40 @@ export function RigPanel({
                   Amplificador
                   <select
                     aria-label="Modelo do amplificador"
-                    value={preset.amp}
-                    onChange={(e) =>
-                      change({
-                        ...preset,
-                        amp: e.target.value as RigPreset["amp"],
-                      })
+                    value={
+                      preset.amp !== "nam" && preset.ampProfile
+                        ? preset.ampProfile
+                        : preset.amp
                     }
+                    onChange={(e) => {
+                      const model = ampProfile(e.target.value);
+                      if (model) {
+                        const next = classicPreset(
+                          model.id,
+                          preset.factoryVariant,
+                        );
+                        next.inputDb = preset.inputDb;
+                        next.outputDb = preset.outputDb;
+                        change(next);
+                      } else
+                        change({
+                          ...preset,
+                          amp: e.target.value as RigPreset["amp"],
+                          ampProfile: undefined,
+                          factoryVariant: undefined,
+                        });
+                    }}
                   >
                     <option value="clean">Clean · DSP</option>
                     <option value="crunch">Crunch · DSP</option>
                     <option value="highgain">High gain · DSP</option>
+                    <optgroup label="Valvulados clássicos">
+                      {CLASSIC_AMPS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.brand} {p.model}
+                        </option>
+                      ))}
+                    </optgroup>
                     <option
                       value="nam"
                       disabled={

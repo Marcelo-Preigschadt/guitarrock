@@ -1263,3 +1263,167 @@
     font-size: 9px;
   }
 }
+.rig-classics {
+  padding: 22px;
+  background: linear-gradient(120deg, #1e2924, #151b1d);
+  border-bottom: 1px solid #35443b;
+}
+.rig-classics-title {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.rig-classics-title > div > span {
+  color: #c5f16d;
+  letter-spacing: 1.5px;
+  font-size: 9px;
+}
+.rig-classics-title h3 {
+  font-size: 15px;
+  margin: 7px 0 0;
+  color: #e2ebdd;
+}
+.rig-classic-variants {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.rig-classic-variants button {
+  border: 1px solid #4c5b45;
+  background: #1b241b;
+  color: #a9b99e;
+  border-radius: 4px;
+  padding: 7px 9px;
+  font-size: 10px;
+}
+.rig-classic-variants button[aria-pressed="true"] {
+  background: #344329;
+  color: #d3eea1;
+  border-color: #8daa5c;
+}
+.rig-classic-brands {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.rig-classic-brands button {
+  padding: 11px 7px;
+  background: #1e2525;
+  border: 1px solid #3a4940;
+  border-radius: 6px;
+  color: #acbeb0;
+  font:
+    600 12px Manrope,
+    sans-serif;
+}
+.rig-classic-brands button.selected {
+  color: #d0ee9c;
+  border-color: #9ac45f;
+  background: #344528;
+}
+.rig-classic-models {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.rig-classic-models > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #131c19;
+  border: 1px solid #35443a;
+  color: #b2c0b6;
+  text-align: left;
+  border-radius: 6px;
+  padding: 12px;
+  min-width: 0;
+}
+.rig-classic-models > button.selected {
+  border-color: #8ba855;
+  background: #283322;
+  color: #dbedba;
+}
+.rig-classic-models strong {
+  display: block;
+  font-size: 13px;
+}
+.rig-classic-models small {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  color: #8fa08d;
+  line-height: 1.5;
+}
+.rig-classic-swatch {
+  width: 12px;
+  height: 36px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  border: 1px solid #ffffff33;
+}
+.rig-classic-cab {
+  margin-left: auto;
+  font-size: 10px;
+  color: #a5bc8b;
+  flex-shrink: 0;
+}
+.rig-classics > p {
+  font-size: 11px;
+  color: #b9cbaa;
+  line-height: 1.7;
+  margin: 13px 0 0;
+}
+.rig-classics > p > span {
+  display: block;
+  color: #829181;
+  font-size: 10px;
+}
+.classic-amp .rig-amp-controls {
+  background: linear-gradient(110deg, #0002, #ffffff19), var(--amp-panel);
+  color: var(--amp-ink);
+}
+.rig-body .classic-amp .rig-amp-knobs .rig-knob,
+.classic-amp .rig-amp-knobs .rig-knob output,
+.classic-amp .rig-amp-controls .rig-rack-order,
+.classic-amp .rig-amp-controls .rig-rack-details {
+  color: var(--amp-ink);
+}
+.classic-amp .rig-amp-model {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+.classic-amp .rig-amp-logo {
+  font-size: 23px;
+  letter-spacing: -0.7px;
+}
+.classic-amp .rig-amp-models button[aria-pressed="true"] {
+  border-color: #87995b;
+}
+@media (max-width: 700px) {
+  .rig-classics {
+    padding: 18px 14px;
+  }
+  .rig-classics-title {
+    flex-wrap: wrap;
+  }
+  .rig-classic-brands {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .rig-classic-brands button {
+    padding: 10px 6px;
+    font-size: 11px;
+  }
+  .rig-classic-models {
+    grid-template-columns: 1fr;
+  }
+  .rig-classics-title h3 {
+    font-size: 14px;
+  }
+  .classic-amp .rig-amp-logo {
+    font-size: 20px;
+  }
+}

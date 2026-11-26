@@ -46,11 +46,26 @@ A pedaleira aparece aberta no início do estúdio, antes de carregar música ou 
 5. Salve timbres com nomes como **Base** e **Solo**. A/B guarda e recupera duas cadeias completas. Os timbres, NAM, IR e a calibração são persistidos por música no IndexedDB e no arquivo `.riffsync`. Sem música aberta, a pedaleira tem sua própria biblioteca local. JSON exporta somente os parâmetros e referências aos arquivos; para transferir tudo, exporte o projeto.
 6. Para tocar junto, use **Silenciar guitarra da música**, que silencia também o áudio original e limpa o solo do mixer. A guitarra ao vivo usa o mesmo contexto e saída do acompanhamento. Ela não é adicionada à exportação do acompanhamento nem gravada automaticamente.
 
+### Valvulados clássicos
+
+A biblioteca **Valvulados clássicos** oferece doze perfis DSP e duas cadeias por modelo: **Base** e **Solo com delay**. Selecionar uma marca/modelo carrega amp, caixa, ganho, EQ e efeitos; preserva os ganhos gerais de entrada e saída. Os controles permanecem editáveis e os perfis acompanham os presets salvos, A/B e projetos `.riffsync`.
+
+| Referência | Modelos disponíveis |
+|---|---|
+| Marshall | 1959 Plexi; JCM800 2203 |
+| Fender | Twin Reverb ’65; Deluxe Reverb ’65 |
+| Mesa/Boogie | Dual Rectifier; Mark IIC+ |
+| Orange | OR120; Rockerverb 50 |
+| Laney | Supergroup; Lionheart L20H |
+| Gibson | Falcon GA-19RVT; EH-150 |
+
+Cada perfil tem filtros antes e depois da saturação, duas curvas suaves de saturação com assimetria própria, resposta de ganho e voicing de caixa. Apenas o perfil escolhido é processado. São **interpretações DSP ajustadas manualmente**, não simulações de circuito elétrico nem capturas medidas dos fabricantes. Os efeitos de ambiente são os módulos do aplicativo; não reproduzem fisicamente uma mola ou o circuito de tremolo original. NAM/IR importados continuam disponíveis para usar respostas capturadas.
+
 ### Ajuste automático por referência
 
 Selecione uma pista de guitarra separada e um trecho de **2 a 20 segundos**, ou importe um trecho curto. Grave **6 segundos de guitarra limpa** pela entrada ou importe DI de 2 a 20 segundos. A calibração é capturada antes dos pedais; o app recusa silêncio, nível muito baixo e clipping. Toque material próximo ao trecho de referência.
 
-**Aproximar timbre** renderiza 63 candidatos/comparações no `OfflineAudioContext`, procura entre amps e caixas DSP, ganho, EQ, saturação, compressor, chorus, delay e reverb, e mantém somente mudanças com menor distância entre descritores espectrais e de dinâmica. O timbre anterior vai para A; o resultado, para B. A referência e a DI podem ser ouvidas separadamente sem misturar a entrada ao vivo. Cancelar preserva o timbre anterior.
+**Aproximar timbre** renderiza 75 candidatos/comparações no `OfflineAudioContext`, procura entre amps e caixas DSP, ganho, EQ, saturação, compressor, chorus, delay e reverb, e mantém somente mudanças com menor distância entre descritores espectrais e de dinâmica. O timbre anterior vai para A; o resultado, para B. A referência e a DI podem ser ouvidas separadamente sem misturar a entrada ao vivo. Cancelar preserva o timbre anterior.
 
 Este recurso é uma **aproximação experimental por otimização DSP**, não um modelo treinado para identificar equipamentos. A redução informada mede a distância sonora dos descritores, não a fidelidade perceptual. Captadores, afinação, execução, acordes diferentes e vazamentos da separação limitam o resultado. Ele não descobre uma cadeia única de pedais nem garante copiar o timbre da gravação. NAM e IR importados podem ser ajustados manualmente; a busca automática usa os modelos DSP nativos.
 
@@ -119,7 +134,7 @@ Na raiz do repositório:
 git pull --ff-only && python3 scripts/restart.py
 ```
 
-Esse comando instala o reconhecimento de letra se estiver ausente, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.4.1**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
+Esse comando instala o reconhecimento de letra se estiver ausente, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.4.2**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
 
 API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Não apague os dados do site no navegador: os projetos e a chave de acesso às tarefas são armazenados ali.
 

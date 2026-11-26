@@ -1,3 +1,4 @@
+import { ampProfile } from "./ampProfiles";
 import { ArrowDown, ArrowUp, Power } from "lucide-react";
 import { Knob } from "./ControlKnob";
 import {
@@ -14,6 +15,8 @@ type Props = {
   select: (kind: EffectKind) => void;
 };
 export function GearRack({ preset, assets, change, select }: Props) {
+  const profile =
+    preset.amp !== "nam" ? ampProfile(preset.ampProfile) : undefined;
   const amp = effect(preset, "amp"),
     cab = effect(preset, "cabinet");
   const toggle = (kind: EffectKind) =>
@@ -57,18 +60,36 @@ export function GearRack({ preset, assets, change, select }: Props) {
   const cabs = ["1x12", "2x12", "4x12"] as const;
   return (
     <div className="rig-stage" aria-label="Amplificador e caixas de guitarra">
-      <div className={`rig-amp-head ${amp.enabled ? "powered" : ""}`}>
+      <div
+        className={`rig-amp-head ${amp.enabled ? "powered" : ""} ${profile ? "classic-amp" : ""}`}
+        style={
+          profile
+            ? ({
+                "--amp-panel": profile.panel,
+                "--amp-ink": profile.ink,
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
         <div className="rig-amp-handle" aria-hidden="true" />
         <div className="rig-amp-grille">
           <span className="rig-amp-logo">
-            riff<span>sync</span>
+            {profile ? (
+              profile.brand
+            ) : (
+              <>
+                riff<span>sync</span>
+              </>
+            )}
           </span>
           <span className="rig-amp-model">
-            {preset.amp === "nam"
-              ? "NEURAL CAPTURE"
-              : preset.amp === "highgain"
-                ? "HIGH GAIN"
-                : preset.amp.toUpperCase()}
+            {profile
+              ? profile.model
+              : preset.amp === "nam"
+                ? "NEURAL CAPTURE"
+                : preset.amp === "highgain"
+                  ? "HIGH GAIN"
+                  : preset.amp.toUpperCase()}
           </span>
           <span className="rig-amp-badge">AMPLIFICADOR VIRTUAL</span>
         </div>
@@ -86,7 +107,15 @@ export function GearRack({ preset, assets, change, select }: Props) {
                   key={value}
                   aria-pressed={preset.amp === value}
                   className={preset.amp === value ? "active" : ""}
-                  onClick={() => change({ ...preset, amp: value })}
+                  onClick={() =>
+                    change({
+                      ...preset,
+                      amp: value,
+                      ampProfile: undefined,
+                      factoryVariant: undefined,
+                      name: "Meu timbre",
+                    })
+                  }
                 >
                   {label}
                 </button>
@@ -101,7 +130,13 @@ export function GearRack({ preset, assets, change, select }: Props) {
                       Object.keys(assets).find(
                         (id) => assets[id].kind === "nam",
                       );
-                    change({ ...preset, amp: "nam", namAsset: id });
+                    change({
+                      ...preset,
+                      amp: "nam",
+                      namAsset: id,
+                      ampProfile: undefined,
+                      factoryVariant: undefined,
+                    });
                   }}
                 >
                   NAM

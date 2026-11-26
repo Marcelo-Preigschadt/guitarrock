@@ -1,3 +1,4 @@
+import { AMP_PROFILE_IDS, type AmpProfileId } from "./ampProfiles";
 export const EFFECT_KINDS = [
   "gate",
   "compressor",
@@ -29,6 +30,8 @@ export type RigPreset = {
   bypass: boolean;
   amp: "clean" | "crunch" | "highgain" | "nam";
   cabinet: "1x12" | "2x12" | "4x12" | "ir";
+  ampProfile?: AmpProfileId;
+  factoryVariant?: "base" | "solo";
   namAsset?: string;
   irAsset?: string;
   effects: Effect[];
@@ -260,6 +263,13 @@ export function validatePreset(value: unknown): RigPreset {
       )
         throw new Error(`Parâmetro inválido em ${EFFECTS[effect.kind].name}.`);
   }
+  if (p.ampProfile !== undefined && !AMP_PROFILE_IDS.includes(p.ampProfile))
+    throw new Error("Modelo de amplificador inválido.");
+  if (
+    p.factoryVariant !== undefined &&
+    !["base", "solo"].includes(p.factoryVariant)
+  )
+    throw new Error("Variação de timbre inválida.");
   for (const id of [p.namAsset, p.irAsset])
     if (id !== undefined && !/^[\w-]{1,80}$/.test(id))
       throw new Error("Arquivo de timbre inválido.");

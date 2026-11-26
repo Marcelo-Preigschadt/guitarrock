@@ -20,7 +20,7 @@ async def lifespan(_app):
     db.init()
     yield
 
-app = FastAPI(title="RiffSync API", version="0.4.1", lifespan=lifespan)
+app = FastAPI(title="RiffSync API", version="0.4.2", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=config.ORIGINS, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Workspace-Key", "Range", "If-Range"], expose_headers=["Content-Range", "Content-Length", "Accept-Ranges", "ETag"])
 
 def owner(x_workspace_key: str = Header(default="")):
@@ -39,7 +39,7 @@ def owned(job_id, key):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "worker_online": db.worker_online(),
-            "version": "0.4.1", "build": frontend_version(),
+            "version": "0.4.2", "build": frontend_version(),
             "separation_available": bool(importlib.util.find_spec("demucs")) and bool(shutil.which("ffmpeg")),
             "transcription_available": bool(importlib.util.find_spec("basic_pitch")),
             "lyrics_available": bool(importlib.util.find_spec('faster_whisper')), "device": config.DEVICE}

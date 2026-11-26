@@ -1,3 +1,5 @@
+import { CLASSIC_AMPS } from "./ampProfiles";
+import { classicPreset } from "./factoryPresets";
 import { calibrationWindow, toneDistance, toneFeatures } from "./analysis";
 import { renderPreset } from "./dsp";
 import { defaultPreset, effect, type RigPreset } from "./types";
@@ -18,7 +20,7 @@ export async function matchTone(
   const input = calibrationWindow(di, rate),
     target = toneFeatures(reference, rate);
   let done = 0;
-  const total = 63;
+  const total = 63 + CLASSIC_AMPS.length;
   const evaluate = async (preset: RigPreset) => {
     signal.throwIfAborted();
     const audio = await render(input, rate, preset);
@@ -51,6 +53,12 @@ export async function matchTone(
         effect(p, "amp").params.gain = gain;
         await accept(p);
       }
+  for (const model of CLASSIC_AMPS) {
+    const p = classicPreset(model.id);
+    p.inputDb = current.inputDb;
+    p.outputDb = current.outputDb;
+    await accept(p);
+  }
   for (const step of [5, 2])
     for (const control of ["bass", "mid", "treble", "presence"]) {
       const base = structuredClone(best);

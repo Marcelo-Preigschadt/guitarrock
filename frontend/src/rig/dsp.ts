@@ -1,3 +1,4 @@
+import { ampProfile, valveCurve, type AmpProfileId } from "./ampProfiles";
 import {
   dbGain,
   EFFECTS,
@@ -14,9 +15,7 @@ export type Block = {
 };
 const smooth = (param: AudioParam, value: number, ctx: RigContext) =>
   param.setTargetAtTime(value, ctx.currentTime, 0.012);
-function block(
-  ctx: RigContext,
-): Block & {
+function block(ctx: RigContext): Block & {
   input: GainNode;
   output: GainNode;
   nodes: AudioNode[];
@@ -96,7 +95,12 @@ export function reverbImpulse(ctx: RigContext, seconds: number): AudioBuffer {
 export function createEffect(
   ctx: RigContext,
   kind: EffectKind,
-  extras: { nam?: AudioNode; ir?: AudioBuffer; gate?: AudioNode } = {},
+  extras: {
+    nam?: AudioNode;
+    ir?: AudioBuffer;
+    gate?: AudioNode;
+    profile?: AmpProfileId;
+  } = {},
 ): Block {
   const b = block(ctx);
   const keep = (...nodes: AudioNode[]) => b.nodes.push(...nodes);
@@ -132,6 +136,81 @@ export function createEffect(
       node.knee.value = 12;
       smooth(node.attack, p.attack / 1000, ctx);
       smooth(node.release, p.release / 1000, ctx);
+    };
+    return b;
+  }
+  if (kind === "amp" && extras.profile && !extras.nam) {
+    const hp = filter(ctx, "highpass", 65),
+      bright = filter(ctx, "highshelf", 2000),
+      pre = ctx.createGain(),
+      first = ctx.createWaveShaper(),
+      inter = filter(ctx, "lowpass", 9000),
+      dc = filter(ctx, "highpass", 30),
+      power = ctx.createWaveShaper(),
+      bass = filter(ctx, "lowshelf", 180),
+      mid = filter(ctx, "peaking", 750, 0.8),
+      treble = filter(ctx, "highshelf", 2600),
+      presence = filter(ctx, "peaking", 3800, 0.7),
+      last = filter(ctx, "lowpass", 10000);
+    first.oversample = "4x";
+    power.oversample = "2x";
+    keep(
+      hp,
+      bright,
+      pre,
+      first,
+      inter,
+      dc,
+      power,
+      bass,
+      mid,
+      treble,
+      presence,
+      last,
+    );
+    chain([
+      b.input,
+      hp,
+      bright,
+      pre,
+      first,
+      inter,
+      dc,
+      power,
+      bass,
+      mid,
+      treble,
+      presence,
+      last,
+      b.output,
+    ]);
+    let previous = "";
+    b.update = (p, preset) => {
+      const model = ampProfile(preset.ampProfile)!;
+      const v = model.voice;
+      if (previous !== model.id) {
+        previous = model.id;
+        first.curve = valveCurve(v.drive, v.bias);
+        power.curve = valveCurve(v.power, v.bias * 0.4);
+      }
+      const amount = v.gainBase + p.gain * v.gainSlope;
+      smooth(pre.gain, amount, ctx);
+      smooth(hp.frequency, v.inputCut, ctx);
+      smooth(bright.frequency, v.brightHz, ctx);
+      smooth(bright.gain, v.brightDb, ctx);
+      smooth(inter.frequency, v.interCut, ctx);
+      smooth(mid.frequency, v.midHz, ctx);
+      smooth(presence.frequency, v.presenceHz, ctx);
+      smooth(last.frequency, v.outputCut, ctx);
+      smooth(bass.gain, p.bass, ctx);
+      smooth(mid.gain, p.mid, ctx);
+      smooth(treble.gain, p.treble, ctx);
+      smooth(presence.gain, p.presence, ctx);
+      smooth(
+        b.output.gain,
+        (dbGain(p.master) * v.makeup) / Math.sqrt(Math.max(1, amount)),
+        ctx,
+      );
     };
     return b;
   }
@@ -219,7 +298,10 @@ export function createEffect(
             ? [130, 4, -3]
             : [180, 2.5, -2];
       smooth(body.frequency, hz, ctx);
-      smooth(body.gain, gain, ctx);
+      const voice =
+        preset.amp !== "nam" ? ampProfile(preset.ampProfile)?.voice : undefined;
+      smooth(body.gain, gain + (voice?.cabBody || 0), ctx);
+      smooth(notch.frequency, voice?.cabNotch || 1800, ctx);
       smooth(notch.gain, cut, ctx);
     };
     return b;
@@ -334,6 +416,7 @@ export class RigGraph {
   readonly output: GainNode;
   private blocks = new Map<EffectKind, Block>();
   private route = "";
+  private ampShape = "";
   private disposed = false;
   constructor(
     readonly context: RigContext,
@@ -354,9 +437,25 @@ export class RigGraph {
       ? []
       : preset.effects.filter((e) => e.enabled);
     for (const e of enabled) {
+      if (e.kind === "amp") {
+        const shape = this.extras.nam
+          ? "nam"
+          : preset.ampProfile
+            ? "classic"
+            : "generic";
+        if (shape !== this.ampShape) {
+          this.blocks.get("amp")?.dispose();
+          this.blocks.delete("amp");
+          this.ampShape = shape;
+          this.route = "";
+        }
+      }
       let b = this.blocks.get(e.kind);
       if (!b) {
-        b = createEffect(this.context, e.kind, this.extras);
+        b = createEffect(this.context, e.kind, {
+          ...this.extras,
+          profile: preset.ampProfile,
+        });
         this.blocks.set(e.kind, b);
       }
       b.update(e.params, preset);
