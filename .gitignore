@@ -12,3 +12,6 @@ frontend/public/alphatab/
 *.egg-info/
 
 frontend/public/music/
+
+.tools/
+.venv.backup-*/

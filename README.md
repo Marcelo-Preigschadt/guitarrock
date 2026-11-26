@@ -53,7 +53,7 @@ Use **Code → Codespaces → Create codespace on main**. A configuração em `.
 
 ## Instalação local
 
-Pré-requisitos: **Python 3.11**, **Node.js 22**, **FFmpeg** e `libsndfile`.
+Requer **Node.js com npm**. O instalador reutiliza Python 3.10/3.11 disponível ou instala Python 3.11 isoladamente via uv, sem substituir o Python do sistema. Em Debian/Ubuntu, instala FFmpeg e libsndfile quando necessários, usando os repositórios da distribuição. Repositórios externos como Yarn não entram nessa atualização do APT.
 
 ```bash
 bash scripts/setup.sh
@@ -61,6 +61,16 @@ bash scripts/start.sh
 ```
 
 Abra **http://localhost:8000**. Os scripts são para Linux/macOS ou WSL. No Windows, Docker Desktop é a alternativa para executar a configuração completa.
+
+### Instalar em outro repositório ou conta
+
+O diretório e o dono do repositório podem mudar: o setup resolve todos os caminhos a partir da própria cópia. Após copiar o projeto ou criar um fork, no terminal do novo Codespace:
+
+```bash
+bash scripts/setup.sh && bash scripts/start.sh --background
+```
+
+Abra a porta **8000** desse novo Codespace. Ele usa seu próprio diretório `data`, seus modelos e seus processos. `RIFFSYNC_PYTHON` continua disponível para indicar um interpretador compatível específico. Um ambiente `.venv` incompatível é preservado com sufixo de backup. `bash scripts/setup.sh --runtime-only` prepara apenas Python/FFmpeg, sem baixar os pacotes de IA.
 
 ### Desenvolvimento
 
