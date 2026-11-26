@@ -25,7 +25,10 @@ export class StudioAudio {
 
   private init() {
     if (!this.context) {
-      this.context = new AudioContext();
+      this.context = new AudioContext({
+        latencyHint: "interactive",
+        sampleRate: 48000,
+      });
       this.master = this.context.createGain();
       const limiter = this.context.createDynamicsCompressor();
       limiter.threshold.value = -1;
@@ -36,6 +39,10 @@ export class StudioAudio {
       this.master.connect(limiter).connect(this.context.destination);
     }
     return this.context;
+  }
+  rigRouting() {
+    const context = this.init();
+    return { context, destination: this.master! };
   }
   async decode(id: string, blob: Blob) {
     const generation = this.generation;
@@ -273,7 +280,7 @@ export async function wavPeaks(blob: Blob, count = 220): Promise<number[]> {
     align = 0,
     start = 0,
     bytes = 0;
-  for (let at = 12; at + 8 <= data.byteLength;) {
+  for (let at = 12; at + 8 <= data.byteLength; ) {
     const name = tag(at),
       size = view.getUint32(at + 4, true),
       body = at + 8;

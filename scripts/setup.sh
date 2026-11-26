@@ -95,6 +95,6 @@ fi
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
 .venv/bin/python -m pip install -e './backend[test]' -r backend/requirements-ai.txt
-npm ci --prefix frontend
+node frontend/scripts/install-deps.mjs
 npm run build
 printf '\nRiffSync instalado. Inicie com: bash scripts/start.sh --background\n'

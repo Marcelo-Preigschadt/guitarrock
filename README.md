@@ -35,6 +35,29 @@ Estúdio web para carregar uma gravação, separar instrumentos e gerar automati
 - Cache offline do aplicativo após um carregamento completo da versão de produção. A IA exige o servidor; sessões já baixadas podem ser estudadas localmente.
 - Demonstração de 19 segundos com arranjo original sintetizado. **A demonstração é identificada como tal e não simula resultados de IA.**
 
+## Pedaleira e timbre — v0.4.0
+
+Abra **Pedaleira e timbre** no menu lateral. Funciona também sem carregar uma música e não exige servidor para processar a guitarra ao vivo.
+
+1. Ligue a guitarra à entrada de instrumento de uma interface de áudio. Escolha a entrada e o canal 1 ou 2, clique em **Conectar guitarra** e permita a entrada de áudio. O app solicita áudio sem cancelamento de eco, redução de ruído ou ganho automático. O navegador pode ignorar essas preferências conforme o dispositivo.
+2. Clique em **Ativar retorno**. A captura inicia com retorno desligado e saída em −12 dB. Use fones e desative o monitoramento direto da interface para não ouvir os dois caminhos.
+3. Ligue, desligue e reordene os 15 módulos: noise gate, compressor, boost, overdrive, distorção, fuzz, amplificador, caixa, EQ, chorus, phaser, flanger, tremolo, delay e reverb. As setas mudam a ordem real do processamento. Os controles respondem durante a execução.
+4. Escolha amp **Clean, Crunch ou High gain** e caixa **1×12, 2×12 ou 4×12**. Esses modelos nativos usam saturação e filtros DSP; as caixas não são IRs medidos. **Importar IR** aceita respostas mono/estéreo de até 5 segundos. **Importar .nam** carrega uma captura neural compatível com Neural Amp Modeler em 48 kHz. Capturas que já incluem caixa devem ser usadas com o módulo de caixa desligado, a menos que você queira os dois estágios. Não há capturas comerciais incluídas.
+5. Salve timbres com nomes como **Base** e **Solo**. A/B guarda e recupera duas cadeias completas. Os timbres, NAM, IR e a calibração são persistidos por música no IndexedDB e no arquivo `.riffsync`. Sem música aberta, a pedaleira tem sua própria biblioteca local. JSON exporta somente os parâmetros e referências aos arquivos; para transferir tudo, exporte o projeto.
+6. Para tocar junto, use **Silenciar guitarra da música**, que silencia também o áudio original e limpa o solo do mixer. A guitarra ao vivo usa o mesmo contexto e saída do acompanhamento. Ela não é adicionada à exportação do acompanhamento nem gravada automaticamente.
+
+### Ajuste automático por referência
+
+Selecione uma pista de guitarra separada e um trecho de **2 a 20 segundos**, ou importe um trecho curto. Grave **6 segundos de guitarra limpa** pela entrada ou importe DI de 2 a 20 segundos. A calibração é capturada antes dos pedais; o app recusa silêncio, nível muito baixo e clipping. Toque material próximo ao trecho de referência.
+
+**Aproximar timbre** renderiza 63 candidatos/comparações no `OfflineAudioContext`, procura entre amps e caixas DSP, ganho, EQ, saturação, compressor, chorus, delay e reverb, e mantém somente mudanças com menor distância entre descritores espectrais e de dinâmica. O timbre anterior vai para A; o resultado, para B. A referência e a DI podem ser ouvidas separadamente sem misturar a entrada ao vivo. Cancelar preserva o timbre anterior.
+
+Este recurso é uma **aproximação experimental por otimização DSP**, não um modelo treinado para identificar equipamentos. A redução informada mede a distância sonora dos descritores, não a fidelidade perceptual. Captadores, afinação, execução, acordes diferentes e vazamentos da separação limitam o resultado. Ele não descobre uma cadeia única de pedais nem garante copiar o timbre da gravação. NAM e IR importados podem ser ajustados manualmente; a busca automática usa os modelos DSP nativos.
+
+A extração de referência de uma tarefa concluída é autenticada, gera um WAV mono de 48 kHz de no máximo 20 segundos e reutiliza cache. Não executa a separação novamente. Sem o servidor, pistas curtas locais podem ser usadas diretamente; para pistas longas, importe um trecho curto.
+
+O processamento local usa Web Audio e AudioWorklet em contexto seguro (**HTTPS** ou localhost). A saída exibida em ms é uma estimativa de `baseLatency + outputLatency`, não a latência total de ida e volta da interface. A latência real e a quantidade de efeitos/NAM que rodam sem falhas dependem do navegador, driver e hardware. [Motor NAM usado](https://github.com/tone-3000/neural-amp-modeler-wasm); licença distribuída em `frontend/public/licenses/neural-amp-modeler-wasm.txt`.
+
 ## Executar com Docker
 
 Requer Docker com Compose. A imagem usa Python 3.11, FFmpeg e PyTorch para CPU.
@@ -96,7 +119,7 @@ Na raiz do repositório:
 git pull --ff-only && python3 scripts/restart.py
 ```
 
-Esse comando instala o reconhecimento de letra se estiver ausente, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.3.1**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
+Esse comando instala o reconhecimento de letra se estiver ausente, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.4.0**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
 
 API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Não apague os dados do site no navegador: os projetos e a chave de acesso às tarefas são armazenados ali.
 
@@ -137,6 +160,7 @@ Documentação interativa em `/docs`.
 | POST | `/api/jobs/{id}/retry` | Recolocar tarefa com falha na fila, reutilizando o upload |
 | GET | `/api/jobs/{id}/files/{filename}` | Baixar uma pista finalizada |
 | GET | `/api/jobs/{id}/files/{filename}?format=m4a` | Reprodução AAC em cache, com a mesma autenticação e suporte a HTTP Range |
+| GET | `/api/jobs/{id}/excerpt/{filename}?start=0&seconds=8` | Trecho mono de 48 kHz para comparação de timbre, de 1 a 20 segundos, autenticado e em cache |
 | DELETE | `/api/jobs/{id}` | Remover tarefa finalizada com sucesso ou falha |
 
 Exceto `/health`, as rotas requerem `X-Workspace-Key` com a chave gerada pelo frontend. A chave não é enviada em query strings. Isso isola sessões, mas não implementa cadastro, login Google, recuperação de conta ou quotas por pessoa. A fila limita tarefas ativas por sessão e globalmente. Para uma oferta pública multiusuário, acrescente autenticação e quotas de processamento antes da abertura.

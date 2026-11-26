@@ -31,8 +31,7 @@ def main():
     dependency = subprocess.run([python,'-c',"import importlib.util; raise SystemExit(0 if importlib.util.find_spec('faster_whisper') else 1)"])
     if dependency.returncode:
         subprocess.run([python,'-m','pip','install','faster-whisper>=1.2,<2'],check=True)
-    if not (root/'frontend/node_modules').is_dir():
-        subprocess.run(['npm','ci','--prefix','frontend'], check=True)
+    subprocess.run(['node','frontend/scripts/install-deps.mjs'], check=True)
     subprocess.run(['npm','run','build'], check=True)
     expected = json.loads((root/'frontend/dist/version.json').read_text())
     expected_index = (root/'frontend/dist/index.html').read_bytes()

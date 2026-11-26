@@ -70,3 +70,26 @@ def waveform(source, count=220):
         return result
     except (OSError, ValueError, EOFError, wave.Error):
         return []
+
+
+def excerpt(source, start, seconds):
+    """Decode a bounded reference clip, never the full stem in the browser."""
+    source = Path(source)
+    folder = source.parent/'excerpts'; folder.mkdir(exist_ok=True)
+    key = hashlib.sha256(f'{signature(source)}:{start:.3f}:{seconds:.3f}'.encode()).hexdigest()[:32]
+    target = folder/(key+'.wav')
+    with target.with_suffix('.lock').open('a+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if target.is_file(): return target
+        temporary = folder/(uuid.uuid4().hex+'.wav')
+        try:
+            with ENCODERS:
+                result = subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-ss',f'{start:.3f}',
+                    '-i',str(source),'-t',f'{seconds:.3f}','-map','0:a:0','-vn','-ac','1','-ar','48000',
+                    '-c:a','pcm_s16le','-threads','1',str(temporary)],capture_output=True,timeout=30)
+            if result.returncode or not temporary.is_file(): raise RuntimeError('Não foi possível extrair o trecho de referência.')
+            with wave.open(str(temporary),'rb') as audio:
+                if audio.getnframes()<4800: raise ValueError('O trecho começa depois do fim da pista ou está vazio.')
+            temporary.replace(target)
+        finally: temporary.unlink(missing_ok=True)
+    return target

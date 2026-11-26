@@ -68,6 +68,15 @@ import { LyricsView } from "./components/LyricsView";
 import { CifraView } from "./components/CifraView";
 import { projectChords } from "./chords";
 import { APP_VERSION, APP_REVISION } from "./version";
+import { RigPanel } from "./rig/RigPanel";
+import {
+  defaultRig,
+  validateRig,
+  validateRigAssets,
+  type RigAssets,
+} from "./rig/types";
+import { loadRigDraft, saveRigDraft } from "./storage";
+import { referenceExcerpt } from "./api";
 
 type Panel = "none" | "settings" | "import" | "projects" | "help";
 
@@ -76,6 +85,11 @@ export default function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [files, setFiles] = useState<Record<string, Blob>>({});
   const [score, setScore] = useState<Blob>();
+  const [rigAssets, setRigAssets] = useState<RigAssets>({});
+  const [draftRig, setDraftRig] = useState(defaultRig);
+  const [draftAssets, setDraftAssets] = useState<RigAssets>({});
+  const [draftReady, setDraftReady] = useState(false);
+  const [rigExpanded, setRigExpanded] = useState(false);
   const [waveforms, setWaveforms] = useState<Record<string, number[]>>({});
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedTrack, setSelectedTrack] = useState("");
@@ -150,6 +164,30 @@ export default function App() {
       .catch(() => setConnection(null));
   }, [notify]);
   useEffect(() => {
+    void loadRigDraft()
+      .then((draft) => {
+        if (draft) {
+          const state = validateRig(draft.state);
+          validateRigAssets(state, draft.assets);
+          setDraftRig(state);
+          setDraftAssets(draft.assets);
+        }
+      })
+      .catch(() =>
+        notify("Não foi possível abrir os timbres da pedaleira local."),
+      )
+      .finally(() => setDraftReady(true));
+  }, [notify]);
+  useEffect(() => {
+    if (!draftReady) return;
+    const timer = setTimeout(() => {
+      void saveRigDraft(draftRig, draftAssets).catch(() =>
+        notify("Não foi possível salvar os timbres locais."),
+      );
+    }, 650);
+    return () => clearTimeout(timer);
+  }, [draftRig, draftAssets, draftReady, notify]);
+  useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(""), 6500);
       return () => clearTimeout(timer);
@@ -182,7 +220,7 @@ export default function App() {
     if (!project || busy || !Object.keys(files).length) return;
     setSaved(false);
     const timer = setTimeout(() => {
-      void saveSession({ project, files, score })
+      void saveSession({ project, files, score, rigAssets })
         .then(async () => {
           setSaved(true);
           setProjects(await listSessions());
@@ -194,7 +232,7 @@ export default function App() {
         );
     }, 650);
     return () => clearTimeout(timer);
-  }, [project, files, score, busy, notify]);
+  }, [project, files, score, rigAssets, busy, notify]);
   useEffect(() => {
     if (active && autoFollow && !editing && tab === "text")
       document
@@ -263,10 +301,12 @@ export default function App() {
         if (op.current !== token) return;
       }
       setFiles(session.files);
+      setRigAssets(session.rigAssets || {});
       setScore(session.score);
       setWaveforms(waves);
       setProject({
         ...session.project,
+        rig: session.project.rig || defaultRig(),
         duration: Math.max(session.project.duration, engine.current.duration),
         tracks,
         jobApplied:
@@ -286,6 +326,7 @@ export default function App() {
       engine.current.reset();
       setProject(null);
       setFiles({});
+      setRigAssets({});
       notify(message(e));
     } finally {
       if (op.current === token) setBusy("");
@@ -708,6 +749,7 @@ export default function App() {
             project: backup,
             files: { ...filesRef.current },
             score,
+            rigAssets,
           });
           void listSessions().then(setProjects);
         } catch {
@@ -832,7 +874,7 @@ export default function App() {
     setExportMenu(false);
     setBusy("Exportando o projeto…");
     try {
-      await exportSession({ project, files, score });
+      await exportSession({ project, files, score, rigAssets });
     } catch (e) {
       notify(message(e));
     } finally {
@@ -867,6 +909,7 @@ export default function App() {
       engine.current.reset();
       setProject(null);
       setFiles({});
+      setRigAssets({});
       setScore(undefined);
       setPlaying(false);
       setTime(0);
@@ -970,6 +1013,23 @@ export default function App() {
             }}
           >
             <FileMusic size={18} /> Cifras e tablaturas
+          </button>
+          <button
+            className="nav-item"
+            onClick={() => {
+              setRigExpanded(true);
+              setPanel("none");
+              setTimeout(
+                () =>
+                  document
+                    .getElementById("live-rig")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                40,
+              );
+            }}
+          >
+            <Guitar size={18} />
+            Pedaleira e timbre
           </button>
         </nav>
         <div className="sidebar-section-title">
@@ -1633,6 +1693,110 @@ export default function App() {
             )}
           </section>
 
+          <RigPanel
+            key={project?.id || "standalone"}
+            state={project?.rig || draftRig}
+            assets={project ? rigAssets : draftAssets}
+            tracks={project?.tracks || []}
+            time={time}
+            expanded={rigExpanded}
+            onExpand={() => setRigExpanded((v) => !v)}
+            onChange={(rig) => {
+              if (project) update((p) => ({ ...p, rig }));
+              else setDraftRig(rig);
+            }}
+            onAssets={(assets) => {
+              if (project) setRigAssets(assets);
+              else setDraftAssets(assets);
+            }}
+            routing={() => engine.current.rigRouting()}
+            muteReference={(id) =>
+              update((p) => ({
+                ...p,
+                tracks: p.tracks.map((t) =>
+                  t.id === id || t.kind === "original"
+                    ? { ...t, muted: true, solo: false }
+                    : { ...t, solo: false },
+                ),
+              }))
+            }
+            reference={async (id, start, seconds, signal) => {
+              const p = projectRef.current,
+                track = p?.tracks.find((t) => t.id === id);
+              if (!p || !track)
+                throw new Error("Pista de referência indisponível.");
+              const ctx = engine.current.rigRouting().context,
+                existing = engine.current.buffers.get(id);
+              signal.throwIfAborted();
+              if (existing) {
+                const length = Math.min(
+                  Math.floor(seconds * existing.sampleRate),
+                  existing.length - Math.floor(start * existing.sampleRate),
+                );
+                if (length <= 0)
+                  throw new Error("O trecho começa após o fim da pista.");
+                const clip = ctx.createBuffer(
+                  existing.numberOfChannels,
+                  length,
+                  existing.sampleRate,
+                );
+                for (let c = 0; c < clip.numberOfChannels; c++)
+                  clip.copyToChannel(
+                    existing
+                      .getChannelData(c)
+                      .slice(
+                        Math.floor(start * existing.sampleRate),
+                        Math.floor(start * existing.sampleRate) + length,
+                      ),
+                    c,
+                  );
+                return clip;
+              }
+              if (p.jobId && track.filename && track.kind !== "original") {
+                const blob = await referenceExcerpt(
+                  p.jobBase || apiBase,
+                  p.jobId,
+                  track.filename,
+                  start,
+                  seconds,
+                  signal,
+                );
+                signal.throwIfAborted();
+                return ctx.decodeAudioData(await blob.arrayBuffer());
+              }
+              const blob = filesRef.current[id];
+              if (!blob)
+                throw new Error(
+                  "Recupere a pista antes de usá-la como referência.",
+                );
+              if (p.duration > 45 || blob.size > 15 * 1024 ** 2)
+                throw new Error(
+                  "Para essa pista longa, conecte o servidor que fez a separação ou importe um trecho curto na pedaleira.",
+                );
+              const decoded = await ctx.decodeAudioData(
+                await blob.arrayBuffer(),
+              );
+              signal.throwIfAborted();
+              const left = Math.floor(start * decoded.sampleRate),
+                length = Math.min(
+                  decoded.length - left,
+                  Math.floor(seconds * decoded.sampleRate),
+                );
+              if (length <= 0)
+                throw new Error("O trecho começa após o fim da pista.");
+              const clip = ctx.createBuffer(
+                decoded.numberOfChannels,
+                length,
+                decoded.sampleRate,
+              );
+              for (let c = 0; c < clip.numberOfChannels; c++)
+                clip.copyToChannel(
+                  decoded.getChannelData(c).slice(left, left + length),
+                  c,
+                );
+              return clip;
+            }}
+          />
           <section className="notation-section">
             <div className="section-heading">
               <div>

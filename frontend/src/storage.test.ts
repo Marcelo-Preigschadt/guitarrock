@@ -53,3 +53,45 @@ describe("arquivo de projeto portátil", () => {
     ).rejects.toThrow("Dados de áudio inválidos");
   });
 });
+
+import { packSession } from "./storage";
+import { defaultRig } from "./rig/types";
+import type { Session } from "./types";
+describe("projeto com timbre portátil", () => {
+  const rig = defaultRig();
+  rig.current.irAsset = "cab";
+  rig.current.cabinet = "ir";
+  rig.calibrationAsset = "dry";
+  rig.a = structuredClone(rig.current);
+  const session: Session = {
+    project: {
+      version: 1,
+      id: "old",
+      title: "Guitarra",
+      filename: "g.wav",
+      duration: 5,
+      updated: 1,
+      tracks: [makeTrack("guitar", "g")],
+      cues: [],
+      rawText: "",
+      rig,
+    },
+    files: { g: new Blob(["audio"]) },
+    rigAssets: {
+      cab: { kind: "ir", name: "Meu IR.wav", blob: new Blob(["impulse"]) },
+      dry: { kind: "di", name: "DI.wav", blob: new Blob(["dry guitar"]) },
+    },
+  };
+  it("exporta e reabre cadeia, A/B, IR e DI com os mesmos bytes", async () => {
+    const blob = await packSession(session);
+    const imported = await importSession(new File([blob], "song.riffsync"));
+    expect(imported.project.rig).toEqual(rig);
+    expect(await imported.rigAssets!.cab.blob.text()).toBe("impulse");
+    expect(await imported.rigAssets!.dry.blob.text()).toBe("dry guitar");
+  });
+  it("recusa exportar timbre dependente de arquivos ausentes", async () => {
+    await expect(packSession({ ...session, rigAssets: {} })).rejects.toThrow(
+      "ausente",
+    );
+  });
+});

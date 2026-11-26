@@ -246,3 +246,34 @@ export async function artifact(
     );
   }
 }
+
+export async function referenceExcerpt(
+  base: string,
+  jobId: string,
+  file: string,
+  start: number,
+  seconds: number,
+  signal?: AbortSignal,
+) {
+  const response = await fetch(
+    `${base.replace(/\/$/, "")}/api/jobs/${encodeURIComponent(jobId)}/excerpt/${encodeURIComponent(file)}?start=${start}&seconds=${seconds}`,
+    {
+      headers: { "X-Workspace-Key": workspaceKey() },
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(40000)])
+        : AbortSignal.timeout(40000),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof body.detail === "string"
+        ? body.detail
+        : `Falha ao obter referência (HTTP ${response.status}).`,
+    );
+  }
+  const blob = await response.blob();
+  if (blob.size > 2_000_000)
+    throw new Error("O trecho de referência excedeu o tamanho esperado.");
+  return validateAudio(blob, false);
+}

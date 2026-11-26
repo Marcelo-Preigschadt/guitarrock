@@ -5,7 +5,7 @@ if [[ ! -x .venv/bin/python ]]; then
   printf 'Execute bash scripts/setup.sh primeiro.\n' >&2
   exit 1
 fi
-if [[ ! -d frontend/node_modules ]]; then npm ci --prefix frontend; fi
+node frontend/scripts/install-deps.mjs
 if ! node frontend/scripts/build-info.mjs --check; then npm run build; fi
 export RIFFSYNC_DATA="${RIFFSYNC_DATA:-$PWD/data}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"

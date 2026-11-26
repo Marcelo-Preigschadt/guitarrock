@@ -1,3 +1,4 @@
+import type { RigAssets, RigState } from "./rig/types";
 export type Note = {
   start: number;
   end: number;
@@ -61,6 +62,7 @@ export type Project = {
   jobBase?: string;
   jobApplied?: boolean;
   jobResultId?: string;
+  rig?: RigState;
   scoreName?: string;
   timing?: Timing;
 };
@@ -68,6 +70,7 @@ export type Session = {
   project: Project;
   files: Record<string, Blob>;
   score?: Blob;
+  rigAssets?: RigAssets;
 };
 export type Job = {
   operation?: "chords" | "vocals_drums";

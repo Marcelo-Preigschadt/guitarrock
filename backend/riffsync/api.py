@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
@@ -19,7 +20,7 @@ async def lifespan(_app):
     db.init()
     yield
 
-app = FastAPI(title="RiffSync API", version="0.3.1", lifespan=lifespan)
+app = FastAPI(title="RiffSync API", version="0.4.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=config.ORIGINS, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Workspace-Key", "Range", "If-Range"], expose_headers=["Content-Range", "Content-Length", "Accept-Ranges", "ETag"])
 
 def owner(x_workspace_key: str = Header(default="")):
@@ -38,7 +39,7 @@ def owned(job_id, key):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "worker_online": db.worker_online(),
-            "version": "0.3.1", "build": frontend_version(),
+            "version": "0.4.0", "build": frontend_version(),
             "separation_available": bool(importlib.util.find_spec("demucs")) and bool(shutil.which("ffmpeg")),
             "transcription_available": bool(importlib.util.find_spec("basic_pitch")),
             "lyrics_available": bool(importlib.util.find_spec('faster_whisper')), "device": config.DEVICE}
@@ -216,6 +217,22 @@ def get_file(job_id: str, filename: str, format: str = 'wav', key=Depends(owner)
             raise HTTPException(503, str(error)) from error
     return FileResponse(path, media_type='audio/mp4' if format == 'm4a' else 'audio/wav',
                         filename=Path(filename).stem+'.'+format, headers={'Cache-Control':'private, max-age=86400'})
+
+@app.get("/api/jobs/{job_id}/excerpt/{filename}")
+def get_excerpt(job_id: str, filename: str, start: float = 0, seconds: float = 8, key=Depends(owner)):
+    job = owned(job_id, key)
+    if job['status'] != 'completed': raise HTTPException(409, 'O processamento ainda não foi concluído.')
+    if not math.isfinite(start) or not math.isfinite(seconds) or not 0 <= start <= 86400 or not 1 <= seconds <= 20:
+        raise HTTPException(422, 'Selecione um trecho entre 1 e 20 segundos e um início válido.')
+    if filename not in {track['file'] for track in job['result']['tracks']} or Path(filename).name != filename:
+        raise HTTPException(404, 'Arquivo não encontrado.')
+    source = config.DATA / job_id / 'output' / filename
+    if not source.is_file(): raise HTTPException(404, 'Arquivo removido ou indisponível.')
+    from .media import excerpt
+    try: path = excerpt(source, round(start,3), round(seconds,3))
+    except ValueError as error: raise HTTPException(422, str(error)) from error
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as error: raise HTTPException(503, str(error)) from error
+    return FileResponse(path, media_type='audio/wav', headers={'Cache-Control':'private, max-age=86400'})
 
 dist = Path(os.environ.get("FRONTEND_DIST", str(Path.cwd() / "frontend" / "dist")))
 

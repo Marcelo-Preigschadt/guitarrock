@@ -1,0 +1,578 @@
+.rig-section {
+  margin: 36px 0;
+  scroll-margin-top: 24px;
+}
+.rig-body {
+  background: #181c1f;
+  border: 1px solid #323b40;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.rig-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.rig-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid #30383d;
+  color: #85969e;
+  font-size: 12px;
+  gap: 12px;
+}
+.rig-tag {
+  letter-spacing: 1.6px;
+  color: #c5f16d;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 10px;
+}
+.live-dot,
+.offline-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #c5f16d;
+  box-shadow: 0 0 12px #c5f16d66;
+}
+.offline-dot {
+  background: #72838c;
+  box-shadow: none;
+}
+.rig-inputs {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 22px 22px 12px;
+  flex-wrap: wrap;
+}
+.rig-body label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: #a4b2bb;
+}
+.rig-body select,
+.rig-body input:not([type="range"]):not([type="file"]) {
+  background: #101416;
+  border: 1px solid #394249;
+  color: #e3ebee;
+  border-radius: 6px;
+  min-height: 39px;
+  padding: 8px 10px;
+  font: inherit;
+  max-width: 100%;
+  color-scheme: dark;
+}
+.rig-inputs > label:first-child {
+  min-width: 200px;
+  flex: 1;
+}
+.rig-body .button {
+  font-size: 12px;
+  white-space: normal;
+}
+.rig-input-detail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 22px;
+  font-size: 11px;
+  color: #96a5af;
+  flex-wrap: wrap;
+}
+.rig-input-detail label {
+  flex-direction: row;
+  align-items: center;
+  margin-left: auto;
+}
+.rig-input-detail select {
+  max-width: 220px;
+}
+.rig-meter {
+  height: 7px;
+  width: 145px;
+  background: #0d1112;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.rig-meter i {
+  display: block;
+  height: 100%;
+  background: #c5f16d;
+  transition: width 70ms linear;
+}
+.rig-hint {
+  padding: 0 22px;
+  color: #7b909b;
+  font-size: 11px;
+  margin: 12px 0 22px;
+  line-height: 1.6;
+}
+.rig-presetbar {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  border-top: 1px solid #30383d;
+  padding: 18px 22px;
+  flex-wrap: wrap;
+}
+.rig-presetbar > label {
+  flex: 1;
+  min-width: 170px;
+}
+.rig-ab {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.rig-ab > div {
+  display: flex;
+  border: 1px solid #3e494e;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.rig-ab button {
+  padding: 8px 9px;
+  background: #131819;
+  border: 0;
+  color: #9baab0;
+}
+.rig-ab button.active {
+  color: #c5f16d;
+  background: #303b23;
+}
+.rig-ab button:disabled {
+  opacity: 0.35;
+}
+.rig-pedalboard {
+  display: flex;
+  gap: 10px;
+  padding: 22px;
+  overflow-x: auto;
+  background: radial-gradient(ellipse at top, #242b2c, #101416);
+  border-top: 1px solid #30383d;
+  border-bottom: 1px solid #30383d;
+}
+.rig-pedal {
+  min-width: 118px;
+  width: 118px;
+  flex-shrink: 0;
+  background: #242a2d;
+  border: 1px solid #3b4448;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.rig-pedal.enabled {
+  border-color: color-mix(in srgb, var(--pedal-color) 55%, #222);
+}
+.rig-pedal.selected {
+  outline: 1px solid var(--pedal-color);
+  outline-offset: 3px;
+}
+.rig-pedal-face {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  background: transparent;
+  color: #84949b;
+  padding: 13px 12px 11px;
+  width: 100%;
+  border: 0;
+  min-height: 112px;
+  gap: 10px;
+}
+.rig-pedal-face > span {
+  font-size: 10px;
+  letter-spacing: 1.6px;
+}
+.rig-pedal-face strong {
+  font-size: 12px;
+  line-height: 1.35;
+  min-height: 32px;
+}
+.rig-pedal.enabled strong {
+  color: var(--pedal-color);
+}
+.rig-pedal-face i {
+  width: 7px;
+  height: 7px;
+  background: #5c676d;
+  border-radius: 100%;
+  align-self: center;
+  margin: 5px 0;
+}
+.rig-pedal.enabled .rig-pedal-face i {
+  background: var(--pedal-color);
+  box-shadow: 0 0 10px var(--pedal-color);
+}
+.rig-pedal-foot {
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid #ffffff12;
+  background: #0002;
+}
+.rig-pedal-foot button {
+  background: none;
+  border: 0;
+  padding: 9px;
+  color: #87989f;
+}
+.rig-pedal.enabled .rig-pedal-foot button:first-child {
+  color: var(--pedal-color);
+}
+.rig-pedal-foot button:disabled {
+  opacity: 0.2;
+}
+.rig-editor {
+  padding: 22px;
+  background: linear-gradient(120deg, #20272a, #181c1f);
+}
+.rig-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+.rig-editor-head h3 {
+  margin: 5px 0 0;
+  font-size: 18px;
+}
+.rig-label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: #c5f16d;
+}
+.rig-editor-head > span {
+  font-size: 11px;
+  color: #7f929b;
+}
+.rig-knobs {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.rig-knob {
+  width: 88px;
+  align-items: center;
+  flex-shrink: 0;
+  text-align: center;
+}
+.rig-knob-dial {
+  width: 46px;
+  height: 46px;
+  background: linear-gradient(135deg, #495258, #15191b);
+  border: 2px solid #59636a;
+  border-radius: 50%;
+  position: relative;
+  box-shadow:
+    2px 4px 6px #0008,
+    inset 0 0 0 4px #252d31;
+  margin-bottom: 3px;
+}
+.rig-knob-dial i {
+  position: absolute;
+  left: 20px;
+  top: 4px;
+  width: 2px;
+  height: 11px;
+  background: #c5f16d;
+  transform-origin: 1px 17px;
+  transform: rotate(var(--knob-angle));
+  border-radius: 2px;
+}
+.rig-knob output {
+  font: 10px monospace;
+  color: #c5f16d;
+}
+.rig-knob input[type="range"] {
+  width: 80px;
+  height: 12px;
+  accent-color: #c5f16d;
+  cursor: pointer;
+}
+.rig-models {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 26px;
+}
+.rig-models > label {
+  min-width: 170px;
+}
+.rig-models small {
+  flex-basis: 100%;
+  color: #8b9ba5;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.rig-match {
+  border-top: 1px solid #30383d;
+  padding: 24px 22px;
+  background: #151b18;
+}
+.rig-match-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.rig-match-heading > svg {
+  color: #c5f16d;
+  flex-shrink: 0;
+}
+.rig-match h3,
+.rig-library h3 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+.rig-match p {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #879c97;
+  margin: 0;
+}
+.rig-beta {
+  font-size: 8px;
+  letter-spacing: 1.3px;
+  border: 1px solid #4c5c36;
+  color: #b7d27f;
+  border-radius: 4px;
+  padding: 5px;
+  margin-left: auto;
+}
+.rig-match-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 24px 0;
+}
+.rig-match-columns > div {
+  border: 1px solid #314037;
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 0;
+}
+.rig-step {
+  color: #c5f16d;
+  font: 11px monospace;
+  letter-spacing: 1px;
+}
+.rig-match h4 {
+  font-size: 14px;
+  margin: 9px 0 10px;
+}
+.rig-match-columns p {
+  margin-bottom: 16px;
+  min-height: 60px;
+}
+.rig-match-columns small {
+  display: block;
+  font-size: 11px;
+  color: #a0b49c;
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.rig-ref-times {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin: 12px 0;
+}
+.rig-ref-times > label {
+  min-width: 70px;
+  flex: 1;
+}
+.rig-ref-times input {
+  width: 100%;
+}
+.rig-ref-times button {
+  max-width: 120px;
+  flex-shrink: 1;
+}
+.rig-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.rig-actions small {
+  color: #82918f;
+  font-size: 11px;
+}
+.rig-match-bottom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rig-match-bottom > p {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+.rig-library {
+  border-top: 1px solid #30383d;
+  padding: 22px;
+}
+.rig-library h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.rig-library p {
+  font-size: 12px;
+  color: #82959e;
+}
+.rig-saved {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.rig-saved > div {
+  display: flex;
+  border: 1px solid #3b454a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.rig-saved button {
+  background: #20282b;
+  border: 0;
+  color: #cbd8dd;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 12px;
+}
+.rig-saved button small {
+  display: block;
+  color: #82959e;
+  font-size: 10px;
+  margin-top: 4px;
+}
+.rig-library details {
+  margin-top: 18px;
+  font-size: 12px;
+  color: #8d9fa7;
+}
+.rig-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  overflow-wrap: anywhere;
+}
+.rig-working,
+.rig-error {
+  padding: 16px 22px;
+  background: #292e21;
+  color: #c5f16d;
+  font-size: 13px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.rig-error {
+  background: #35251e;
+  color: #efa776;
+  justify-content: space-between;
+}
+.rig-error button {
+  background: none;
+  border: 0;
+  color: inherit;
+}
+.rig-report,
+.rig-status {
+  margin: 0;
+  padding: 12px 22px;
+  font-size: 12px;
+  color: #9db89b;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.rig-report {
+  background: #1c2821;
+  color: #c5f16d;
+}
+.rig-working button {
+  margin-left: auto;
+}
+.rig-body button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.rig-fieldset:disabled {
+  opacity: 0.65;
+}
+.rig-body .spin {
+  animation: rig-spin 1s linear infinite;
+}
+@keyframes rig-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 800px) {
+  .rig-match-columns {
+    grid-template-columns: 1fr;
+  }
+  .rig-topline {
+    align-items: flex-start;
+  }
+  .rig-topline > span:last-child {
+    max-width: 160px;
+    text-align: right;
+    line-height: 1.7;
+  }
+  .rig-beta {
+    display: none;
+  }
+  .rig-knobs {
+    gap: 18px 12px;
+  }
+  .rig-ref-times {
+    flex-wrap: wrap;
+  }
+  .rig-input-detail label {
+    margin-left: 0;
+  }
+  .rig-inputs {
+    gap: 10px;
+  }
+  .rig-inputs > .button {
+    flex: 1;
+  }
+  .rig-presetbar {
+    gap: 10px;
+  }
+  .rig-ab {
+    margin-left: 0;
+  }
+  .rig-pedalboard {
+    padding: 20px 18px;
+  }
+  .rig-body .rig-knob {
+    width: 78px;
+  }
+  .rig-match-columns p {
+    min-height: 0;
+  }
+  .rig-working {
+    flex-wrap: wrap;
+  }
+}
+
+.rig-emergency {
+  padding: 12px 22px;
+  background: #35251e;
+}
