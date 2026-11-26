@@ -112,6 +112,10 @@ class SeparationQualityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
             sf.write(root/'original.wav', np.full((1000,2),.5),44100,subtype='FLOAT')
+            # A failed attempt may have left raw audio from a different window.
+            # The first model must overwrite it before the specialist ensemble.
+            (root/'result'/'raw').mkdir(parents=True)
+            sf.write(root/'result'/'raw'/'drums.wav',np.full((1000,2),.2),44100,subtype='FLOAT')
             with patch('riffsync.separate.infer',side_effect=fake_infer) as inference:
                 metadata=run(root/'original.wav',root/'result','htdemucs_6s','studio','cpu')
             drums,_=sf.read(root/'result'/'drums.wav')

@@ -148,14 +148,15 @@ def run(source, output, model, quality, device, segment=7, overlap=.5, report=la
                               lambda fraction: report((index + fraction) / len(plan), title))
         for kind, value in zip(names, values):
             if kind == 'other': continue
-            if kind == 'drums' and (raw/'drums.wav').is_file():
+            if quality == 'studio' and model == 'htdemucs_6s' and name == SPECIALISTS['drums'] and kind == 'drums':
                 # Equal-weight ensemble: both estimates come from the original mix.
                 # Retain the complementary general model instead of replacing it outright.
                 primary, _ = sf.read(raw/'drums.wav', dtype='float32', always_2d=True)
                 value = (value + torch.from_numpy(primary.T.copy())) * .5
+                del primary
             sf.write(raw/f'{kind}.wav', value.numpy().T, sr, subtype='FLOAT')
             kinds.append(kind)
-        del values
+        del values, value
     kinds = [kind for kind in ('vocals', 'drums', 'bass', 'guitar', 'piano') if kind in kinds] + ['other']
     report(1., 'Preservando níveis e finalizando os WAVs')
     metadata = finalize(source, raw, output, kinds)
