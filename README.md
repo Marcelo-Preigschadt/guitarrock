@@ -4,6 +4,12 @@
 
 Estúdio web para carregar uma gravação, separar instrumentos e gerar automaticamente um arranjo em compassos, pautas, cifras e tablaturas, sincronizado com as pistas de áudio reais. Interface em português, compatível com computador e celular.
 
+## Interface simplificada — v0.6.1
+
+A navegação organiza o estúdio em **Faixas**, **Cifras e letra** e **Guitarra**. A tela inicial destaca o upload, com acesso à demonstração. Ao abrir uma música, o player permanece disponível nas três áreas; trocar de área mantém a reprodução, o mixer, a pedaleira e os arquivos importados.
+
+O mixer oferece volume, **Mudo**, **Solo**, visibilidade da notação e download por instrumento. Refinamento de qualidade, conexão com servidor externo e comparação experimental de timbre ficam em painéis recolhíveis. Pedais, amplificadores clássicos e caixas continuam acessíveis antes de conectar a guitarra. No celular, as três áreas ficam na barra acima do conteúdo; os projetos podem ser abertos pelo ícone de pasta no topo. O padrão de separação continua **Superior**.
+
 ## Motor e desempenho — v0.6.0
 
 O **Superior continua como padrão**, com os quatro modelos, duas estimativas Demucs, voz RoFormer, ensemble de bateria e especialista de baixo. Agora o processamento usa até oito threads dentro da quota/afinidade real do servidor, com controle explícito por `RIFFSYNC_CPU_THREADS`. O mesmo limite é aplicado ao PyTorch, ONNX e Whisper. A tela de configuração e `/api/health` mostram os núcleos e threads disponíveis.
@@ -26,13 +32,13 @@ Veja [desenvolvimento do RiffCore](docs/riffcore.md) e [medições de desempenho
 - Forma de onda com posição de reprodução, marcadores arrastáveis e repetição A–B.
 - Importação de texto TXT, LRC e ChordPro; espaços de cifras e tablaturas ASCII são preservados. LRC mantém os timestamps.
 - Sincronização manual por bloco ou linha: selecione o trecho, toque o áudio e pressione **M**, ou use **Marcar**. Tempos também podem ser digitados.
-- **Cifra e braço**: sequência de acordes com diagramas, braço horizontal e notas nas casas sincronizadas. Alterna digitação sugerida do acorde e notas detectadas na guitarra/baixo. A cifra é armazenada separadamente do texto importado. **Gerar/Recalcular cifra** reutiliza as faixas existentes e não executa Demucs.
+- **Acordes** (em Cifras e letra): sequência de acordes com diagramas, braço horizontal e notas nas casas sincronizadas. Alterna digitação sugerida do acorde e notas detectadas na guitarra/baixo. A cifra é armazenada separadamente do texto importado. **Gerar/Recalcular cifra** reutiliza as faixas existentes e não executa Demucs.
 - **Reprocessar em qualidade superior**: cria uma revisão independente a partir do upload original. Combina `htdemucs_6s` para guitarra/piano, Mel-Band RoFormer (Kimberley Jensen) para voz e os especialistas oficiais `f7e0c4bc` (bateria) e `d12395a8` (baixo). Os modelos Demucs usam duas estimativas deslocadas. Preserva a versão anterior em Meus projetos e no servidor. Não reutiliza o cache de áudio antigo como se fosse o novo resultado. A rota antiga de refinamento de voz/bateria permanece compatível com clientes anteriores.
-- **Arranjo da IA**: pautas e tablaturas geradas diretamente dos eventos de notas detectados, com cifras acima dos compassos, cursor e páginas acompanhando a reprodução. Não exige importação de Guitar Pro/MusicXML e não gera arquivos MIDI.
+- **Tablatura** (em Cifras e letra): pautas e tablaturas geradas diretamente dos eventos de notas detectados, com cifras acima dos compassos, cursor e páginas acompanhando a reprodução. Não exige importação de Guitar Pro/MusicXML e não gera arquivos MIDI.
 - Edição visual de cada nota: início, fim, corda, casa ou altura. A grade visual pode ser ajustada por BPM e compasso. A reprodução usa os WAVs separados, preservando o timbre da gravação.
 - Marcação de ataques de bateria, melodia da voz e notas de piano. O andamento, a métrica e as digitações são estimativas editáveis.
 - Separação real com Demucs: modelos `htdemucs` (4 pistas), `htdemucs_ft` (4 pistas, refinado) e `htdemucs_6s` (6 pistas, experimental).
-- Início direto por **Separar com IA** no mixer ou **Separar instrumentos** nas configurações. Com API e worker no mesmo servidor do aplicativo, o endereço pode ficar vazio. Erros de envio permanecem visíveis na tela com a resposta do servidor.
+- Início direto por **Separar instrumentos** no mixer ou **Separar instrumentos** nas configurações. Com API e worker no mesmo servidor do aplicativo, o endereço pode ficar vazio. Erros de envio permanecem visíveis na tela com a resposta do servidor.
 - Transcrição de notas por stem com Basic Pitch; estimativa de cordas e casas para guitarra e baixo em afinação padrão. Piano mantém eventos de notas no projeto.
 - Estimativa de acordes maiores/menores por chroma, segmentação rítmica e suavização temporal. O limite de silêncio considera o nível do acompanhamento separado, para não eliminar acordes apenas por estarem baixos. Trechos sem evidência suficiente não recebem um acorde inventado.
 - Letra automática com faster-whisper/Whisper `large-v3-turbo`, CPU `int8`, idioma automático e timestamps por palavra, usando o áudio original para evitar depender de uma voz isolada com artefatos. A aba **Letra e cifra** acompanha a reprodução e permite corrigir texto e tempos. O processamento da letra começa depois da entrega do resultado musical e não bloqueia os áudios concluídos.
@@ -59,7 +65,7 @@ Para músicas já separadas, clique em **Reprocessar em qualidade superior**. Os
 
 ## Pedaleira e timbre — v0.4.0
 
-A pedaleira aparece aberta no início do estúdio, antes de carregar música ou conectar um dispositivo. Cabeçote, caixas e pedais têm controles próprios; o menu **Pedaleira e timbre** leva diretamente a eles. A conexão de áudio fica depois dos equipamentos.
+A área **Guitarra** mostra cabeçote, caixas e pedais antes de carregar uma música ou conectar um dispositivo. Os equipamentos têm controles próprios; a conexão de áudio fica depois deles. A comparação de timbre e os arquivos salvos ficam em painéis recolhíveis.
 
 1. Ligue a guitarra à entrada de instrumento de uma interface de áudio. Escolha a entrada e o canal 1 ou 2, clique em **Conectar guitarra** e permita a entrada de áudio. O app solicita áudio sem cancelamento de eco, redução de ruído ou ganho automático. O navegador pode ignorar essas preferências conforme o dispositivo.
 2. Clique em **Ativar retorno**. A captura inicia com retorno desligado e saída em −12 dB. Use fones e desative o monitoramento direto da interface para não ouvir os dois caminhos.
@@ -156,7 +162,7 @@ Na raiz do repositório:
 git pull --ff-only && python3 scripts/restart.py
 ```
 
-Esse comando instala os motores de letra e RoFormer se estiverem ausentes, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.6.0**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
+Esse comando instala os motores de letra e RoFormer se estiverem ausentes, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.6.1**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
 
 API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Não apague os dados do site no navegador: os projetos e a chave de acesso às tarefas são armazenados ali.
 

@@ -12,7 +12,6 @@ import {
   FolderOpen,
   Guitar,
   Headphones,
-  Keyboard,
   LoaderCircle,
   Repeat2 as Loop,
   Music2,
@@ -82,6 +81,12 @@ import { loadRigDraft, saveRigDraft } from "./storage";
 import { referenceExcerpt } from "./api";
 
 type Panel = "none" | "settings" | "import" | "projects" | "help";
+type Workspace = "studio" | "notation" | "rig";
+const workspaces = [
+  { id: "studio", label: "Faixas", icon: SlidersHorizontal },
+  { id: "notation", label: "Cifras e letra", icon: FileMusic },
+  { id: "rig", label: "Guitarra", icon: Guitar },
+] as const;
 
 export default function App() {
   const engine = useRef(new StudioAudio());
@@ -100,6 +105,12 @@ export default function App() {
   const [busy, setBusy] = useState("");
   const [saved, setSaved] = useState(false);
   const [panel, setPanel] = useState<Panel>("none");
+  const [workspace, setWorkspace] = useState<Workspace>("studio");
+  const navigate = (next: Workspace) => {
+    setWorkspace(next);
+    setPanel("none");
+    setExportMenu(false);
+  };
   const [tab, setTab] = useState<"text" | "arrangement" | "chords">("chords");
   const [editing, setEditing] = useState(false);
   const [selectedCue, setSelectedCue] = useState("");
@@ -155,6 +166,10 @@ export default function App() {
     !project.demo &&
     project.tracks.some((track) => track.kind === "original");
   const active = project ? activeCue(project.cues, time) : null;
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [workspace]);
 
   useEffect(() => {
     void listSessions()
@@ -239,11 +254,11 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [project, files, score, rigAssets, busy, notify]);
   useEffect(() => {
-    if (active && autoFollow && !editing && tab === "text")
+    if (workspace === "notation" && active && autoFollow && !editing && tab === "text")
       document
         .getElementById(`cue-${active}`)
         ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [active, autoFollow, editing, tab]);
+  }, [active, autoFollow, editing, tab, workspace]);
   useEffect(() => {
     const close = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -326,6 +341,7 @@ export default function App() {
       setSelectedCue(session.project.cues[0]?.id || "");
       setTab("chords");
       setPanel("none");
+      setWorkspace("studio");
       setEditing(false);
     } catch (e) {
       engine.current.reset();
@@ -438,7 +454,7 @@ export default function App() {
         e.preventDefault();
         void playPause();
       }
-      if (e.key.toLowerCase() === "m" && editing) {
+      if (e.key.toLowerCase() === "m" && editing && workspace === "notation" && tab === "text") {
         e.preventDefault();
         markCue();
       }
@@ -453,7 +469,7 @@ export default function App() {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [playPause, markCue, editing, panel, seek]);
+  }, [playPause, markCue, editing, panel, seek, workspace, tab]);
 
   const applyResult = useCallback(
     async (resultJob: Job, base: string) => {
@@ -860,6 +876,7 @@ export default function App() {
     setSelectedCue(cues[0]?.id || "");
     setEditing(true);
     setTab("text");
+    setWorkspace("notation");
     setPanel("none");
     notify(
       "Texto importado. Selecione um trecho e marque o momento em que ele começa.",
@@ -961,7 +978,7 @@ export default function App() {
     project?.cues.filter((c) => c.barIndex === undefined) || [];
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell clean-studio workspace-${workspace} ${project ? "has-project" : "is-empty"}`}>
       <input
         ref={audioInput}
         type="file"
@@ -1016,44 +1033,22 @@ export default function App() {
           </span>
           <span>
             riff<span className="brand-light">sync</span>
-            <small>PLAY IT YOUR WAY</small>
           </span>
         </a>
         <div className="workspace-label">
-          SEU ESTÚDIO <span>v{APP_VERSION}</span>
+          ESTÚDIO <span>v{APP_VERSION}</span>
         </div>
         <nav aria-label="Navegação principal">
-          <button className="nav-item active" onClick={() => setPanel("none")}>
-            <SlidersHorizontal size={18} /> Estúdio <span className="nav-dot" />
-          </button>
-          <button className="nav-item" onClick={() => setPanel("projects")}>
-            <FolderOpen size={18} /> Meus projetos{" "}
+          {workspaces.map(({ id, label, icon: Icon }) => (
+            <button key={id} className={`nav-item ${workspace === id ? "active" : ""}`}
+              aria-current={workspace === id ? "page" : undefined}
+              title={label} onClick={() => navigate(id)}>
+              <Icon size={19} /> {label}
+            </button>
+          ))}
+          <button className="nav-item projects-nav" title="Meus projetos" onClick={() => setPanel("projects")}>
+            <FolderOpen size={18} /> Projetos{" "}
             <span className="nav-count">{projects.length}</span>
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => {
-              setText(project?.rawText || "");
-              setPanel(project ? "import" : "help");
-            }}
-          >
-            <FileMusic size={18} /> Cifras e tablaturas
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => {
-              setPanel("none");
-              setTimeout(
-                () =>
-                  document
-                    .getElementById("live-rig")
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-                40,
-              );
-            }}
-          >
-            <Guitar size={18} />
-            Pedaleira e timbre
           </button>
         </nav>
         <div className="sidebar-section-title">
@@ -1097,44 +1092,26 @@ export default function App() {
           )}
         </div>
         <div className="sidebar-bottom">
-          <div className="practice-card">
-            <Headphones size={22} />
-            <strong>O palco é seu.</strong>
-            <p>
-              Escolha uma faixa.
-              <br />
-              Dê espaço ao seu som.
-            </p>
-            <button
-              onClick={() => {
-                void demo();
-              }}
-              disabled={!!busy || jobActive}
-            >
-              Explorar demonstração <Play size={12} fill="currentColor" />
-            </button>
-          </div>
-          <button className="nav-item" onClick={() => setPanel("settings")}>
+          <button className="nav-item" title="Configurações" onClick={() => setPanel("settings")}>
             <Settings2 size={17} /> Configurações
           </button>
-          <button className="nav-item" onClick={() => setPanel("help")}>
+          <button className="nav-item" title="Como funciona" onClick={() => setPanel("help")}>
             <CircleHelp size={17} /> Como funciona
           </button>
-          <div className="profile">
-            <span>RS</span>
-            <div>
-              Estúdio local<small>Seu espaço de criação</small>
-            </div>
-          </div>
+          <p className="local-caption">Seus projetos ficam neste dispositivo.</p>
         </div>
       </aside>
 
       <main className="main-studio">
         <header className="topbar">
+          <span className="mobile-brand"><AudioLines size={22} /> riffsync</span>
           <div className="breadcrumb">
-            Workspace <span>/</span> <strong>Estúdio</strong>
+            Seu estúdio <span>/</span> <strong>{workspaces.find((item) => item.id === workspace)?.label}</strong>
           </div>
           <div className="top-actions">
+            <button className="icon-button mobile-projects" title="Meus projetos" aria-label="Meus projetos" onClick={() => setPanel("projects")}>
+              <FolderOpen size={19} />
+            </button>
             <button
               className={`server-state ${connection?.worker_online && connection.separation_available ? "connected" : ""}`}
               onClick={() => setPanel("settings")}
@@ -1143,7 +1120,7 @@ export default function App() {
               <span>
                 {connection?.worker_online && connection.separation_available
                   ? "IA conectada"
-                  : "Conectar IA"}
+                  : "Configurar IA"}
               </span>
             </button>
             <span className="top-divider" />
@@ -1153,7 +1130,7 @@ export default function App() {
               aria-label="Ajuda e atalhos"
               onClick={() => setPanel("help")}
             >
-              <Keyboard size={18} />
+                <CircleHelp size={18} />
             </button>
           </div>
         </header>
@@ -1161,126 +1138,38 @@ export default function App() {
           <section className="page-heading">
             <div>
               <div className="eyebrow">
-                <span /> SEU ESTÚDIO DE PRÁTICA
+                RIFFSYNC STUDIO
               </div>
               <h1>
-                Sua música. <span>Seu jeito de tocar.</span>
+                {workspace === "studio" ? (project ? "Seu som, faixa por faixa." : <>Mais música.<br /><span>Menos distração.</span></>)
+                  : workspace === "notation" ? "Acompanhe a música."
+                  : "Encontre seu timbre."}
               </h1>
-              <p>Separe os instrumentos. Encontre seu espaço. Toque junto.</p>
+              <p>{workspace === "studio" ? "Separe os instrumentos e toque com sua música."
+                : workspace === "notation" ? "Cifras, tablaturas e letra no tempo do áudio."
+                : "Amplificadores, caixas e pedais. Prontos para ajustar."}</p>
             </div>
-            <button
+            {(project || workspace !== "studio") && <button
               className="button primary new-music"
               onClick={() => audioInput.current?.click()}
               disabled={!!busy || jobActive}
             >
               <Plus size={18} /> Nova música
-            </button>
+            </button>}
           </section>
 
-          <RigPanel
-            key={project?.id || "standalone"}
-            state={project?.rig || draftRig}
-            assets={project ? rigAssets : draftAssets}
-            tracks={project?.tracks || []}
-            time={time}
-            onChange={(rig) => {
-              if (project) update((p) => ({ ...p, rig }));
-              else setDraftRig(rig);
-            }}
-            onAssets={(assets) => {
-              if (project) setRigAssets(assets);
-              else setDraftAssets(assets);
-            }}
-            routing={() => engine.current.rigRouting()}
-            muteReference={(id) =>
-              update((p) => ({
-                ...p,
-                tracks: p.tracks.map((t) =>
-                  t.id === id || t.kind === "original"
-                    ? { ...t, muted: true, solo: false }
-                    : { ...t, solo: false },
-                ),
-              }))
-            }
-            reference={async (id, start, seconds, signal) => {
-              const p = projectRef.current,
-                track = p?.tracks.find((t) => t.id === id);
-              if (!p || !track)
-                throw new Error("Pista de referência indisponível.");
-              const ctx = engine.current.rigRouting().context,
-                existing = engine.current.buffers.get(id);
-              signal.throwIfAborted();
-              if (existing) {
-                const length = Math.min(
-                  Math.floor(seconds * existing.sampleRate),
-                  existing.length - Math.floor(start * existing.sampleRate),
-                );
-                if (length <= 0)
-                  throw new Error("O trecho começa após o fim da pista.");
-                const clip = ctx.createBuffer(
-                  existing.numberOfChannels,
-                  length,
-                  existing.sampleRate,
-                );
-                for (let c = 0; c < clip.numberOfChannels; c++)
-                  clip.copyToChannel(
-                    existing
-                      .getChannelData(c)
-                      .slice(
-                        Math.floor(start * existing.sampleRate),
-                        Math.floor(start * existing.sampleRate) + length,
-                      ),
-                    c,
-                  );
-                return clip;
-              }
-              if (p.jobId && track.filename && track.kind !== "original") {
-                const blob = await referenceExcerpt(
-                  p.jobBase || apiBase,
-                  p.jobId,
-                  track.filename,
-                  start,
-                  seconds,
-                  signal,
-                );
-                signal.throwIfAborted();
-                return ctx.decodeAudioData(await blob.arrayBuffer());
-              }
-              const blob = filesRef.current[id];
-              if (!blob)
-                throw new Error(
-                  "Recupere a pista antes de usá-la como referência.",
-                );
-              if (p.duration > 45 || blob.size > 15 * 1024 ** 2)
-                throw new Error(
-                  "Para essa pista longa, conecte o servidor que fez a separação ou importe um trecho curto na pedaleira.",
-                );
-              const decoded = await ctx.decodeAudioData(
-                await blob.arrayBuffer(),
-              );
-              signal.throwIfAborted();
-              const left = Math.floor(start * decoded.sampleRate),
-                length = Math.min(
-                  decoded.length - left,
-                  Math.floor(seconds * decoded.sampleRate),
-                );
-              if (length <= 0)
-                throw new Error("O trecho começa após o fim da pista.");
-              const clip = ctx.createBuffer(
-                decoded.numberOfChannels,
-                length,
-                decoded.sampleRate,
-              );
-              for (let c = 0; c < clip.numberOfChannels; c++)
-                clip.copyToChannel(
-                  decoded.getChannelData(c).slice(left, left + length),
-                  c,
-                );
-              return clip;
-            }}
-          />
+          <nav className="mobile-workspaces" aria-label="Áreas do estúdio">
+            {workspaces.map(({ id, label, icon: Icon }) => (
+              <button key={id} aria-current={workspace === id ? "page" : undefined}
+                className={workspace === id ? "active" : ""} onClick={() => navigate(id)}>
+                <Icon size={17} />{label}
+              </button>
+            ))}
+          </nav>
 
-          {!project && (
+
+
+          {!project && workspace === "studio" && (
             <section
               className={`upload-zone ${dragging ? "dragging" : ""}`}
               onDragOver={(e) => {
@@ -1309,14 +1198,14 @@ export default function App() {
               <span className="upload-icon">
                 <Upload size={25} />
               </span>
-              <h2>Qual vai ser o som de hoje?</h2>
+              <h2>Comece pela sua música</h2>
               <p>Arraste sua música para cá ou escolha um arquivo.</p>
               <button
                 className="button primary"
                 disabled={!!busy}
                 onClick={() => audioInput.current?.click()}
               >
-                <FolderOpen size={17} /> Carregar música
+                <Plus size={17} /> Escolher arquivo
               </button>
               <small>
                 MP3, WAV, FLAC, M4A, OGG, AAC, WebM e Opus · até 200 MB
@@ -1329,8 +1218,7 @@ export default function App() {
                   }}
                   disabled={!!busy}
                 >
-                  <Play size={13} fill="currentColor" /> Abrir sessão de
-                  demonstração
+                  <Play size={13} fill="currentColor" /> Ouvir demonstração
                 </button>
               </div>
             </section>
@@ -1376,6 +1264,8 @@ export default function App() {
                 <div className="export-wrap">
                   <button
                     className="button secondary compact"
+                    aria-label="Exportar projeto e áudio"
+                    title="Exportar"
                     disabled={!!busy}
                     onClick={() => setExportMenu(!exportMenu)}
                   >
@@ -1667,19 +1557,124 @@ export default function App() {
             </div>
           )}
 
-          <section className="mixer-section">
+          <div className="rig-workspace" hidden={workspace !== "rig"}>
+            <RigPanel
+              key={project?.id || "standalone"}
+              state={project?.rig || draftRig}
+              assets={project ? rigAssets : draftAssets}
+              tracks={project?.tracks || []}
+              time={time}
+              onChange={(rig) => {
+                if (project) update((p) => ({ ...p, rig }));
+                else setDraftRig(rig);
+              }}
+              onAssets={(assets) => {
+                if (project) setRigAssets(assets);
+                else setDraftAssets(assets);
+              }}
+              routing={() => engine.current.rigRouting()}
+              muteReference={(id) =>
+                update((p) => ({
+                  ...p,
+                  tracks: p.tracks.map((t) =>
+                    t.id === id || t.kind === "original"
+                      ? { ...t, muted: true, solo: false }
+                      : { ...t, solo: false },
+                  ),
+                }))
+              }
+              reference={async (id, start, seconds, signal) => {
+                const p = projectRef.current,
+                  track = p?.tracks.find((t) => t.id === id);
+                if (!p || !track)
+                  throw new Error("Pista de referência indisponível.");
+                const ctx = engine.current.rigRouting().context,
+                  existing = engine.current.buffers.get(id);
+                signal.throwIfAborted();
+                if (existing) {
+                  const length = Math.min(
+                    Math.floor(seconds * existing.sampleRate),
+                    existing.length - Math.floor(start * existing.sampleRate),
+                  );
+                  if (length <= 0)
+                    throw new Error("O trecho começa após o fim da pista.");
+                  const clip = ctx.createBuffer(
+                    existing.numberOfChannels,
+                    length,
+                    existing.sampleRate,
+                  );
+                  for (let c = 0; c < clip.numberOfChannels; c++)
+                    clip.copyToChannel(
+                      existing
+                        .getChannelData(c)
+                        .slice(
+                          Math.floor(start * existing.sampleRate),
+                          Math.floor(start * existing.sampleRate) + length,
+                        ),
+                      c,
+                    );
+                  return clip;
+                }
+                if (p.jobId && track.filename && track.kind !== "original") {
+                  const blob = await referenceExcerpt(
+                    p.jobBase || apiBase,
+                    p.jobId,
+                    track.filename,
+                    start,
+                    seconds,
+                    signal,
+                  );
+                  signal.throwIfAborted();
+                  return ctx.decodeAudioData(await blob.arrayBuffer());
+                }
+                const blob = filesRef.current[id];
+                if (!blob)
+                  throw new Error(
+                    "Recupere a pista antes de usá-la como referência.",
+                  );
+                if (p.duration > 45 || blob.size > 15 * 1024 ** 2)
+                  throw new Error(
+                    "Para essa pista longa, conecte o servidor que fez a separação ou importe um trecho curto na pedaleira.",
+                  );
+                const decoded = await ctx.decodeAudioData(
+                  await blob.arrayBuffer(),
+                );
+                signal.throwIfAborted();
+                const left = Math.floor(start * decoded.sampleRate),
+                  length = Math.min(
+                    decoded.length - left,
+                    Math.floor(seconds * decoded.sampleRate),
+                  );
+                if (length <= 0)
+                  throw new Error("O trecho começa após o fim da pista.");
+                const clip = ctx.createBuffer(
+                  decoded.numberOfChannels,
+                  length,
+                  decoded.sampleRate,
+                );
+                for (let c = 0; c < clip.numberOfChannels; c++)
+                  clip.copyToChannel(
+                    decoded.getChannelData(c).slice(left, left + length),
+                    c,
+                  );
+                return clip;
+              }}
+            />
+          </div>
+
+          <section className="mixer-section" hidden={workspace !== "studio" || !project}>
             <div className="section-heading">
               <div>
                 <h2>
-                  <SlidersHorizontal size={19} /> Mixer de instrumentos{" "}
+                  Instrumentos{" "}
                   <span className="count-badge">
                     {project?.tracks.length || 0}
                   </span>
                 </h2>
-                <p>Silencie uma faixa e assuma o instrumento.</p>
+                <p>{hasStems ? "Ajuste os volumes ou silencie o instrumento que vai tocar." : "Sua música está carregada. Agora separe os instrumentos."}</p>
               </div>
               <button
-                className="button ai-button"
+                className={`button ${hasStems ? "secondary" : "primary"}`}
                 disabled={!canSeparate || !!busy || jobActive || receiving}
                 onClick={() => {
                   void separate();
@@ -1691,7 +1686,7 @@ export default function App() {
                   ? "Recuperar resultado"
                   : hasStems
                     ? "Analisar novamente"
-                    : "Separar com IA"}
+                    : "Separar instrumentos"}
               </button>
             </div>
             <div className="mixer-card">
@@ -1772,11 +1767,12 @@ export default function App() {
             </div>
             {project && !hasStems && (
               <p className="mixer-footnote">
-                <Sparkles size={13} /> A música original já pode tocar. Conecte
-                a IA para separar os instrumentos.
+                <Sparkles size={13} /> Voz, bateria, baixo, guitarra, piano e outros. Ajuste as opções em Configurações.
               </p>
             )}
             {hasStems && project?.jobId && (
+              <details className="advanced-section mixer-options">
+                <summary><Settings2 size={16} /> Opções do mixer e qualidade <ChevronDown size={16} /></summary>
               <div className="refine-actions">
                 <button
                   className="button secondary compact"
@@ -1788,11 +1784,10 @@ export default function App() {
                     : "Reprocessar em qualidade superior"}
                 </button>
                 <span>
-                  Mel-Band RoFormer na voz, modelos específicos para bateria e baixo.
-                  Mantém guitarra e piano separados no modo de seis faixas. Em CPU,
-                  pode levar várias vezes o tempo normal. A versão anterior fica em Meus projetos.
+                  Refina voz, bateria e baixo. A versão anterior fica em Meus projetos.
                 </span>
               </div>
+              </details>
             )}
             {hasStems && (
               <div className="mixer-legend">
@@ -1825,11 +1820,11 @@ export default function App() {
             )}
           </section>
 
-          <section className="notation-section">
+          <section className="notation-section" hidden={workspace !== "notation"}>
             <div className="section-heading">
               <div>
                 <h2>
-                  <FileMusic size={19} /> Acompanhe cada nota
+                  Cifras, letra e tablatura
                 </h2>
                 <p>
                   Letra, cifras e tablaturas geradas a partir das pistas de
@@ -1844,7 +1839,7 @@ export default function App() {
                   setPanel("import");
                 }}
               >
-                <Upload size={15} /> Correção manual · TXT
+                <Upload size={15} /> Importar texto
               </button>
             </div>
             <div className="notation-card">
@@ -1860,7 +1855,7 @@ export default function App() {
                     className={tab === "chords" ? "active" : ""}
                     onClick={() => setTab("chords")}
                   >
-                    <Guitar size={15} /> Cifra e braço
+                    <Guitar size={15} /> Acordes
                   </button>
                   <button
                     role="tab"
@@ -1868,7 +1863,7 @@ export default function App() {
                     className={tab === "arrangement" ? "active" : ""}
                     onClick={() => setTab("arrangement")}
                   >
-                    <Music2 size={15} /> Arranjo da IA
+                    <Music2 size={15} /> Tablatura
                   </button>
                   <button
                     role="tab"
@@ -2214,57 +2209,21 @@ export default function App() {
             </div>
           </section>
 
-          {!project && (
-            <section className="feature-notes">
-              <div>
-                <span>
-                  <AudioLines size={19} />
-                </span>
-                <div>
-                  <h3>Ouça cada detalhe</h3>
-                  <p>
-                    Instrumentos separados para você
-                    <br />
-                    estudar do seu jeito.
-                  </p>
-                </div>
-              </div>
-              <div>
-                <span>
-                  <Guitar size={19} />
-                </span>
-                <div>
-                  <h3>Toque com a banda</h3>
-                  <p>
-                    Silencie seu instrumento e crie
-                    <br />
-                    seu próprio acompanhamento.
-                  </p>
-                </div>
-              </div>
-              <div>
-                <span>
-                  <Radio size={19} />
-                </span>
-                <div>
-                  <h3>Coloque tudo no tempo</h3>
-                  <p>
-                    Importe sua cifra e sincronize
-                    <br />
-                    cada trecho com o áudio.
-                  </p>
-                </div>
-              </div>
-            </section>
+          {!project && workspace === "studio" && (
+            <div className="studio-shortcuts">
+              <button onClick={() => navigate("notation")}>
+                <span className="shortcut-icon"><FileMusic size={22} /></span>
+                <span><strong>Cifras e letra</strong><small>Acordes no braço e tablatura sincronizada.</small></span>
+              </button>
+              <button onClick={() => navigate("rig")}>
+                <span className="shortcut-icon"><Guitar size={22} /></span>
+                <span><strong>Seu equipamento</strong><small>Explore os pedais, amplificadores e caixas.</small></span>
+              </button>
+            </div>
           )}
           <footer className="studio-footer">
-            <span className="footer-brand">
-              <AudioLines size={14} /> riffsync
-            </span>
-            <span>Feito para quem vive a música.</span>
-            <span>
-              <Headphones size={13} /> Dê play. Faça parte.
-            </span>
+            <span className="footer-brand"><AudioLines size={14} /> RiffSync</span>
+            <span>Seu espaço para tocar.</span>
           </footer>
         </div>
       </main>
@@ -2311,44 +2270,6 @@ export default function App() {
                   Escolha as pistas e inicie a separação da música carregada. O
                   arranjo acompanha o áudio original de cada instrumento.
                 </p>
-                <label className="field-label" htmlFor="api-url">
-                  Endereço do servidor
-                </label>
-                <div className="connection-field">
-                  <input
-                    id="api-url"
-                    placeholder="https://seu-servidor.com"
-                    value={apiBase}
-                    onChange={(e) => {
-                      setApiBase(e.target.value);
-                      setConnection(null);
-                      setConnectionError("");
-                    }}
-                  />
-                  <button
-                    className="button primary"
-                    onClick={() => {
-                      void connect();
-                    }}
-                    disabled={checking}
-                  >
-                    {checking ? (
-                      <LoaderCircle className="spin" size={16} />
-                    ) : (
-                      <Wifi size={16} />
-                    )}{" "}
-                    Conectar
-                  </button>
-                </div>
-                <small className="field-help">
-                  Vazio: usar o servidor deste aplicativo. Outra URL: usar um
-                  servidor externo.
-                </small>
-                {connectionError && (
-                  <p className="separation-error" role="alert">
-                    {connectionError}
-                  </p>
-                )}
                 <div className="connection-report">
                   <span
                     className={
@@ -2395,14 +2316,11 @@ export default function App() {
                   value={quality}
                   onChange={(e) => setQuality(e.target.value as "balanced" | "studio")}
                 >
-                  <option value="studio">Superior · RoFormer na voz e modelos por instrumento</option>
-                  <option value="balanced">Normal · um modelo e uma estimativa</option>
+                  <option value="studio">Superior · maior refinamento</option>
+                  <option value="balanced">Normal · processamento mais rápido</option>
                 </select>
                 <p className="field-help">
-                  A qualidade superior pode levar várias vezes o tempo normal em CPU.
-                  Vazamentos e artefatos ainda podem ocorrer, principalmente em guitarra
-                  e piano. O resultado usa WAV de 24 bits e preserva os níveis relativos.
-                  O modelo de voz baixa cerca de 871 MiB no primeiro uso.
+                  Superior refina voz, bateria e baixo com modelos dedicados. O tempo depende do servidor.
                 </p>
                 <label className="checkbox-field">
                   <input
@@ -2425,8 +2343,7 @@ export default function App() {
                   Reconhecer e sincronizar a letra com IA
                 </label>
                 <p className="field-help">
-                  Usa o áudio original com Whisper large-v3-turbo. O modelo é
-                  baixado no primeiro uso. A letra é uma estimativa editável.
+                  Gera uma letra editável e acompanha a reprodução.
                 </p>
                 <label className="field-label">
                   Idioma da música
@@ -2441,6 +2358,47 @@ export default function App() {
                     <option value="es">Espanhol</option>
                   </select>
                 </label>
+                <details className="advanced-section server-options" open={!connection?.worker_online || !!connectionError}>
+                  <summary><Settings2 size={16} /> Servidor e detalhes técnicos <ChevronDown size={16} /></summary>
+                  <div className="advanced-content">
+                <label className="field-label" htmlFor="api-url">
+                  Endereço do servidor
+                </label>
+                <div className="connection-field">
+                  <input
+                    id="api-url"
+                    placeholder="https://seu-servidor.com"
+                    value={apiBase}
+                    onChange={(e) => {
+                      setApiBase(e.target.value);
+                      setConnection(null);
+                      setConnectionError("");
+                    }}
+                  />
+                  <button
+                    className="button primary"
+                    onClick={() => {
+                      void connect();
+                    }}
+                    disabled={checking}
+                  >
+                    {checking ? (
+                      <LoaderCircle className="spin" size={16} />
+                    ) : (
+                      <Wifi size={16} />
+                    )}{" "}
+                    Conectar
+                  </button>
+                </div>
+                <small className="field-help">
+                  Vazio: usar o servidor deste aplicativo. Outra URL: usar um
+                  servidor externo.
+                </small>
+                {connectionError && (
+                  <p className="separation-error" role="alert">
+                    {connectionError}
+                  </p>
+                )}
                 {connection?.compute && <p className="field-help">
                   Servidor: {connection.compute.cpus} núcleos disponíveis · {connection.compute.threads} threads de processamento.
                 </p>}
@@ -2450,6 +2408,8 @@ export default function App() {
                     ? ` · servidor ${connection.build.version}`
                     : ""}
                 </p>
+                  </div>
+                </details>
                 {separationError && (
                   <div className="separation-error" role="alert">
                     <strong>Não foi possível iniciar a separação</strong>
@@ -2641,26 +2601,30 @@ export default function App() {
                   <div>
                     <Sparkles size={20} />
                     <p>
-                      <strong>Separe com IA.</strong> Conecte um servidor de
-                      processamento e escolha o modelo. A qualidade depende da
-                      gravação e dos instrumentos.
+                      <strong>Separe em Faixas.</strong> Clique em Separar instrumentos.
+                      Acompanhe o processamento nessa área; as opções ficam em Configurações.
                     </p>
                   </div>
                   <div>
                     <SlidersHorizontal size={20} />
                     <p>
-                      <strong>Monte o acompanhamento.</strong> Use M para
-                      silenciar uma pista, S para ouvi-la sozinha e o olho para
-                      esconder sua notação.
+                      <strong>Monte o acompanhamento.</strong> Use Mudo para
+                      silenciar uma pista e Solo para ouvi-la sozinha. O olho
+                      mostra ou esconde a pista na tablatura.
                     </p>
                   </div>
                   <div>
                     <Radio size={20} />
                     <p>
-                      <strong>Sincronize seu material.</strong> Importe texto,
-                      ative Sincronizar e use Marcar no início de cada trecho.
-                      Arraste os marcadores na forma de onda para ajustar.
+                      <strong>Acompanhe em Cifras e letra.</strong> Alterne entre
+                      Acordes, Tablatura e Letra e cifra. Para seu próprio material,
+                      use Importar texto e Sincronizar.
                     </p>
+                  </div>
+                  <div>
+                    <Guitar size={20} />
+                    <p><strong>Ajuste em Guitarra.</strong> Escolha os pedais,
+                      amplificador e caixa. Depois, conecte a guitarra e ative o retorno.</p>
                   </div>
                 </div>
                 <div className="shortcuts">

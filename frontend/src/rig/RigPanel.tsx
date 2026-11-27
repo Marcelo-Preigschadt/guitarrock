@@ -997,6 +997,8 @@ export function RigPanel({
               processado.
             </p>
           </div>
+          <details className="advanced-section rig-advanced">
+            <summary><WandSparkles size={18} /> Aproximar timbre de uma gravação <span>Experimental</span></summary>
           <div className="rig-match">
             <div className="rig-match-heading">
               <WandSparkles size={21} />
@@ -1210,6 +1212,9 @@ export function RigPanel({
               </p>
             </div>
           </div>
+          </details>
+          <details className="advanced-section rig-advanced">
+            <summary><Save size={18} /> Timbres salvos e arquivos <span>{state.saved.length} salvos</span></summary>
           <div className="rig-library">
             <h3>
               <AudioLines size={17} /> Timbres salvos{" "}
@@ -1301,6 +1306,7 @@ export function RigPanel({
               </details>
             )}
           </div>
+          </details>
         </fieldset>
         {connected && !!working && (
           <div className="rig-emergency">

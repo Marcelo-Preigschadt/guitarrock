@@ -68,7 +68,7 @@ export function TrackRow({
                   ? "Falha ao carregar áudio"
                   : t.kind === "original"
                     ? "Áudio importado"
-                    : "Pista de instrumento"}
+                    : t.muted ? "Silenciado" : t.solo ? "Solo" : ""}
           </small>
         </span>
       </button>
@@ -112,7 +112,7 @@ export function TrackRow({
           onClick={() => onChange({ muted: !t.muted })}
           title="Silenciar áudio"
         >
-          {t.muted ? <VolumeX size={15} /> : "M"}
+          <VolumeX size={14} /><span>Mudo</span>
         </button>
         <button
           aria-label={`Ouvir somente ${t.name}`}
@@ -121,7 +121,7 @@ export function TrackRow({
           onClick={() => onChange({ solo: !t.solo })}
           title="Ouvir isoladamente"
         >
-          S
+          <span>Solo</span>
         </button>
         <button
           aria-label={`Mostrar notação de ${t.name}`}
