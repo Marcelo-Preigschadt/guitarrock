@@ -4,6 +4,12 @@
 
 Estúdio web para carregar uma gravação, separar instrumentos e gerar automaticamente um arranjo em compassos, pautas, cifras e tablaturas, sincronizado com as pistas de áudio reais. Interface em português, compatível com computador e celular.
 
+## Recuperação de acesso — v0.6.2
+
+Se a API responde, mas o navegador mostra erro ao abrir a interface, use `/api/recover` no mesmo endereço do aplicativo. Essa rota fica fora da interceptação do service worker das versões anteriores. O botão **Recuperar e abrir estúdio** remove somente o worker `/sw.js` e os caches estáticos `riffsync-*`, verifica API, HTML, JavaScript e CSS e reabre o estúdio. IndexedDB, localStorage, projetos, áudios, timbres e a chave de acesso às tarefas são preservados. Se algum arquivo falhar, a página mostra o nome e o erro.
+
+No domínio de prévia do Codespaces (`*.app.github.dev`), a interface desregistra o worker offline para que o navegador trate diretamente os redirecionamentos de autenticação. Outros hosts conservam o funcionamento offline; sem rede e sem uma cópia do HTML, o worker retorna uma resposta HTTP 503 válida.
+
 ## Interface simplificada — v0.6.1
 
 A navegação organiza o estúdio em **Faixas**, **Cifras e letra** e **Guitarra**. A tela inicial destaca o upload, com acesso à demonstração. Ao abrir uma música, o player permanece disponível nas três áreas; trocar de área mantém a reprodução, o mixer, a pedaleira e os arquivos importados.
@@ -162,7 +168,7 @@ Na raiz do repositório:
 git pull --ff-only && python3 scripts/restart.py
 ```
 
-Esse comando instala os motores de letra e RoFormer se estiverem ausentes, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.6.1**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
+Esse comando instala os motores de letra e RoFormer se estiverem ausentes, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.6.2**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
 
 API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Não apague os dados do site no navegador: os projetos e a chave de acesso às tarefas são armazenados ali.
 

@@ -10,19 +10,28 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from . import config, db
 from .compute import summary as compute_summary
 from .diagnostics import summarize_failure
+from .recovery import RECOVERY_HTML
 
 @asynccontextmanager
 async def lifespan(_app):
     db.init()
     yield
 
-app = FastAPI(title="RiffSync API", version="0.6.1", lifespan=lifespan)
+app = FastAPI(title="RiffSync API", version="0.6.2", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=config.ORIGINS, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Workspace-Key", "Range", "If-Range"], expose_headers=["Content-Range", "Content-Length", "Accept-Ranges", "ETag"])
+
+@app.get('/api/recover', include_in_schema=False)
+def recover_access():
+    return HTMLResponse(RECOVERY_HTML, headers={
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+        'X-Content-Type-Options': 'nosniff',
+    })
 
 def owner(x_workspace_key: str = Header(default="")):
     if not re.fullmatch(r"[a-zA-Z0-9_-]{32,160}", x_workspace_key):
@@ -40,7 +49,7 @@ def owned(job_id, key):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "worker_online": db.worker_online(),
-            "version": "0.6.1", "build": frontend_version(), "compute": compute_summary(), "engine":config.ENGINE,
+            "version": "0.6.2", "build": frontend_version(), "compute": compute_summary(), "engine":config.ENGINE,
             "separation_available": bool(importlib.util.find_spec("demucs")) and bool(shutil.which("ffmpeg")),
             "quality_available": bool(importlib.util.find_spec("bs_roformer")),
             "transcription_available": bool(importlib.util.find_spec("basic_pitch")),
