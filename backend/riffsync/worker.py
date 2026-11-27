@@ -13,6 +13,7 @@ import time
 import uuid
 from pathlib import Path
 from . import config, db
+from .compute import child_environment
 from .diagnostics import summarize_failure
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -26,11 +27,13 @@ class WorkerStopping(Exception):
     pass
 
 
-def check_job(job_id, lyrics=False):
+def check_job(job_id, lyrics=False, analysis=False, analysis_token=None):
     job = db.get(job_id)
     if not job or job['status'] == 'cancelled':
         raise Cancelled()
     if lyrics and job.get('lyrics_state') == 'cancelled':
+        raise Cancelled()
+    if analysis and (job.get('analysis_state') == 'cancelled' or (analysis_token is not None and job.get('analysis_token')!=analysis_token)):
         raise Cancelled()
     if stop.is_set():
         raise WorkerStopping()
@@ -58,24 +61,28 @@ class ProcessingFailure(RuntimeError):
         self.details = f'Código de saída: {returncode}\n' + self.details
         super().__init__(message)
 
-def command(args, job_id, log_path, progress=False):
+def command(args, job_id, log_path, progress=False, analysis_token=None):
     started, append = time.monotonic(), False
     while True:
-        check_job(job_id, progress == 'lyrics')
+        check_job(job_id, progress == 'lyrics', progress == 'analysis',analysis_token)
         with log_path.open('ab' if append else 'wb') as output:
-            env = dict(os.environ)
-            env.setdefault('OMP_NUM_THREADS', '2')
-            env.setdefault('MKL_NUM_THREADS', '2')
-            env.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
+            env = child_environment()
             process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
                                        start_new_session=True, close_fds=True, env=env)
             log.info('Job %s: started child %s (worker %s)', job_id, process.pid, os.getpid())
             try:
                 while process.poll() is None:
-                    current = check_job(job_id, progress == 'lyrics')
+                    current = check_job(job_id, progress == 'lyrics', progress == 'analysis',analysis_token)
                     if time.monotonic() - started > config.JOB_TIMEOUT:
                         raise RuntimeError('O processamento atingiu o limite de tempo do servidor.')
-                    if progress == 'lyrics':
+                    if progress == 'analysis':
+                        with log_path.open('rb') as reader:
+                            reader.seek(max(0,log_path.stat().st_size-4096))
+                            markers=re.findall(rb'RIFFSYNC_ANALYSIS (\{[^\r\n]+\})',reader.read())
+                        if markers:
+                            marker=json.loads(markers[-1])
+                            db.update(job_id,expected_analysis_token=analysis_token,analysis_progress=min(99,int(marker['fraction']*100)),analysis_stage=marker['stage'])
+                    elif progress == 'lyrics':
                         with log_path.open('rb') as reader:
                             reader.seek(max(0, log_path.stat().st_size - 4096))
                             markers = re.findall(rb'RIFFSYNC_LYRICS (\{[^\r\n]+\})', reader.read())
@@ -100,13 +107,15 @@ def command(args, job_id, log_path, progress=False):
                             db.update(job_id, progress=settings.get('start',10)+int(value*settings.get('span',60)/100), stage=settings.get('stage','Separando os instrumentos'))
                     stop.wait(.25)
                 # Cancellation/shutdown also wins if the child exited between polls.
-                job = check_job(job_id, progress == 'lyrics')
+                job = check_job(job_id, progress == 'lyrics', progress == 'analysis',analysis_token)
                 if process.returncode == 0:
                     return
                 log.warning('Job %s: child %s exited with %s; worker stopping=%s', job_id, process.pid, process.returncode, stop.is_set())
-                retry_key = 'lyrics_signal_retries' if progress == 'lyrics' else 'signal_retries'
+                retry_key = 'analysis_signal_retries' if progress == 'analysis' else 'lyrics_signal_retries' if progress == 'lyrics' else 'signal_retries'
                 if process.returncode == -signal.SIGTERM and int(job.get(retry_key, 0)) < 1:
-                    if progress == 'lyrics':
+                    if progress == 'analysis':
+                        db.update(job_id,expected_analysis_token=analysis_token,analysis_signal_retries=1,analysis_stage='Análise interrompida; repetindo uma vez')
+                    elif progress == 'lyrics':
                         db.update(job_id, lyrics_signal_retries=1, lyrics_stage='Reconhecimento interrompido; repetindo a etapa uma vez')
                     else:
                         db.update(job_id, signal_retries=1, stage='Separador interrompido; repetindo a etapa uma vez',
@@ -186,27 +195,24 @@ def process(job):
     for kind in ("vocals", "drums", "bass", "guitar", "piano", "other"):
         file = separated / f"{kind}.wav"
         if file.is_file():
-            shutil.move(str(file), str(output / file.name))
+            target=output/file.name
+            temporary=output/(file.stem+'.ready')
+            temporary.unlink(missing_ok=True)
+            try: os.link(file,temporary)
+            except OSError: shutil.copy2(file,temporary)
+            temporary.replace(target)
             tracks.append({"id": kind, "kind": kind, "name": names[kind], "file": file.name})
     expected = 6 if job["model"] == "htdemucs_6s" else 4
     if len(tracks) != expected:
         raise RuntimeError("O separador não gerou todas as pistas esperadas.")
-    transcription = {"bpm": None, "chords": [], "notes": {}, "timing": None, "warnings": []}
-    if job["transcribe"]:
-        db.update(job_id, progress=75, stage="Estimando cifras e notas dos instrumentos")
-        try:
-            command([sys.executable, "-m", "riffsync.transcribe", str(output)], job_id, directory / "transcription.log")
-            transcription = json.loads((output / "transcription.json").read_text(encoding="utf-8"))
-        except (Cancelled, WorkerStopping):
-            raise
-        except Exception:
-            transcription["warnings"].append("A transcrição automática falhou. As pistas estão prontas; importe seu texto para sincronizar.")
-    for track in tracks:
-        track["notes"] = transcription["notes"].get(track["kind"], [])
-    db.update(job_id, status="completed", stage="Pronto para tocar", progress=100,
-              warnings=separation_warnings + transcription["warnings"], result={"duration": length, "bpm": transcription["bpm"], "timing": transcription.get("timing"), "tracks": tracks, "chords": transcription["chords"],
-              'separation': metadata},
-              lyrics_state='queued' if job.get('recognize_lyrics') else 'not_requested', lyrics_progress=0)
+    for track in tracks: track['notes']=[]
+    # Commit audio first. Notes/chords are a separate durable queue; they never
+    # make users wait to download/play already separated stems.
+    db.update(job_id,status='completed',stage='Faixas prontas para tocar',progress=100,
+              warnings=separation_warnings,
+              result={'duration':length,'bpm':None,'timing':None,'tracks':tracks,'chords':[],'separation':metadata},
+              analysis_state='queued' if job['transcribe'] else 'not_requested',analysis_progress=0,
+              lyrics_state='queued' if job.get('recognize_lyrics') else 'not_requested',lyrics_progress=0)
     shutil.rmtree(directory / "separated", ignore_errors=True)
     (directory / "source.wav").unlink(missing_ok=True)
 
@@ -268,6 +274,22 @@ def process_revision(job):
     shutil.rmtree(directory/'enhanced',ignore_errors=True)
     (directory/'source.wav').unlink(missing_ok=True)
 
+def process_analysis(job):
+    directory=config.DATA/job['id']; output=directory/'output'
+    started=time.monotonic()
+    command([sys.executable,'-m','riffsync.transcribe',str(output)],job['id'],directory/'transcription.log',progress='analysis',analysis_token=job.get('analysis_token'))
+    transcription=json.loads((output/'transcription.json').read_text(encoding='utf-8'))
+    current=check_job(job['id'],analysis=True,analysis_token=job.get('analysis_token'))
+    result=json.loads(json.dumps(current['result']))
+    for track in result['tracks']:
+        track['notes']=transcription['notes'].get(track['kind'],[])
+    result.update(chords=transcription['chords'],bpm=transcription['bpm'],timing=transcription.get('timing'),
+                  analysis_revision=uuid.uuid4().hex)
+    db.update(job['id'],expected_analysis_token=job.get('analysis_token'),result=result,analysis_state='ready',analysis_progress=100,
+              analysis_seconds=round(time.monotonic()-started,3),analysis_error=None,
+              analysis_stage='Análise musical concluída',warnings=current.get('warnings',[])+transcription['warnings'])
+
+
 def process_lyrics(job):
     directory = config.DATA/job['id']
     originals = list(directory.glob('input.*'))
@@ -306,27 +328,31 @@ def main():
         if time.monotonic() - last_cleanup > 3600:
             db.prune(); last_cleanup = time.monotonic()
         job = db.claim(worker_id)
-        lyrics_only = False
+        task = 'separation'
         if not job:
-            job = db.claim_lyrics(worker_id)
-            lyrics_only = bool(job)
+            job = db.claim_analysis(worker_id); task='analysis'
+        if not job:
+            job = db.claim_lyrics(worker_id); task='lyrics'
         if not job:
             stop.wait(2); continue
         try:
-            process_lyrics(job) if lyrics_only else process(job)
+            if task=='analysis': process_analysis(job)
+            elif task=='lyrics': process_lyrics(job)
+            else: process(job)
         except WorkerStopping:
-            if lyrics_only: db.update(job['id'],lyrics_state='queued')
-            else: db.requeue(job['id'])
-            log.info('Job %s preserved in queue for worker restart', job['id'])
+            if task=='separation': db.requeue(job['id'])
+            else: db.update(job['id'],expected_analysis_token=job.get('analysis_token') if task=='analysis' else None,**{task+'_state':'queued'})
+            log.info('Job %s (%s) preserved for worker restart',job['id'],task)
         except Cancelled:
-            if lyrics_only: db.update(job['id'],lyrics_state='cancelled',lyrics_stage='Reconhecimento da letra cancelado')
-            else: db.update(job["id"], status="cancelled", stage="Processamento interrompido")
+            if task=='separation': db.update(job['id'],status='cancelled',stage='Processamento interrompido')
+            else: db.update(job['id'],expected_analysis_token=job.get('analysis_token') if task=='analysis' else None,**{task+'_state':'cancelled',task+'_stage':'Processamento cancelado'})
         except Exception as error:
-            log.exception("Job %s failed", job["id"])
-            if lyrics_only:
-                db.update(job['id'],lyrics_state='failed',lyrics_stage='Não foi possível reconhecer a letra',lyrics_error=str(error)[:600])
-            else: db.update(job["id"], status="failed", stage="Não foi possível concluir", error=str(error)[:350],
-                      error_code=getattr(error, "category", "processing"), error_details=getattr(error, "details", ""), exit_code=getattr(error, 'returncode', None))
+            log.exception('Job %s (%s) failed',job['id'],task)
+            if task!='separation':
+                db.update(job['id'],expected_analysis_token=job.get('analysis_token') if task=='analysis' else None,**{task+'_state':'failed',task+'_error':str(error)[:600],task+'_stage':'Não foi possível concluir esta análise; as faixas continuam disponíveis'})
+            else:
+                db.update(job['id'],status='failed',stage='Não foi possível concluir',error=str(error)[:350],
+                          error_code=getattr(error,'category','processing'),error_details=getattr(error,'details',''),exit_code=getattr(error,'returncode',None))
     with db.connect() as c:
         c.execute("DELETE FROM workers WHERE id=?", (worker_id,))
     worker_lock.close()

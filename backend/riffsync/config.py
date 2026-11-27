@@ -13,3 +13,8 @@ MODELS = {"htdemucs", "htdemucs_6s", "htdemucs_ft"}
 LYRICS_MODEL = os.environ.get('LYRICS_MODEL', 'large-v3-turbo')
 LYRICS_LANGUAGE = os.environ.get('LYRICS_LANGUAGE', '')
 ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000").split(",") if o.strip()]
+
+# RiffCore stays opt-in; it requires trained weights and an approved report.
+ENGINE = os.environ.get('RIFFSYNC_ENGINE','superior')
+RIFFCORE_CHECKPOINT = os.environ.get('RIFFCORE_CHECKPOINT','')
+RIFFCORE_REPORT = os.environ.get('RIFFCORE_REPORT','')

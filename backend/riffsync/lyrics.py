@@ -7,6 +7,7 @@ import math
 import sys
 from pathlib import Path
 from . import config
+from .compute import thread_budget
 
 
 def timed_lines(segments):
@@ -31,7 +32,7 @@ def recognize(source, destination, language=""):
     from faster_whisper import WhisperModel
     cache = config.DATA/'models'/'whisper'
     print('Preparando Whisper '+config.LYRICS_MODEL+'; os pesos são baixados somente no primeiro uso.', flush=True)
-    model = WhisperModel(config.LYRICS_MODEL, device='cpu', compute_type='int8', cpu_threads=2,
+    model = WhisperModel(config.LYRICS_MODEL, device='cpu', compute_type='int8', cpu_threads=thread_budget(),
                          num_workers=1, download_root=str(cache))
     segments, info = model.transcribe(str(source), language=language or None,
         beam_size=5, word_timestamps=True, vad_filter=False, condition_on_previous_text=False,

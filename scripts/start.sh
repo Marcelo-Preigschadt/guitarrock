@@ -8,8 +8,6 @@ fi
 node frontend/scripts/install-deps.mjs
 if ! node frontend/scripts/build-info.mjs --check; then npm run build; fi
 export RIFFSYNC_DATA="${RIFFSYNC_DATA:-$PWD/data}"
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
-export MKL_NUM_THREADS="${MKL_NUM_THREADS:-2}"
 export TF_CPP_MIN_LOG_LEVEL="${TF_CPP_MIN_LOG_LEVEL:-2}"
 mkdir -p "$RIFFSYNC_DATA"
 if [[ "${1:-}" == "--background" ]]; then

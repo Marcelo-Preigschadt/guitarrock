@@ -5,8 +5,6 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const children = [];
 const env = {
   ...process.env,
-  OMP_NUM_THREADS: process.env.OMP_NUM_THREADS || "2",
-  MKL_NUM_THREADS: process.env.MKL_NUM_THREADS || "2",
   TF_CPP_MIN_LOG_LEVEL: "2",
 };
 const start = (command, args) => {

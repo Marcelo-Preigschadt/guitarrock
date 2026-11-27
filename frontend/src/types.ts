@@ -18,6 +18,7 @@ export type Track = {
   solo: boolean;
   visible: boolean;
   notes?: Note[];
+  notesEdited?: boolean;
   filename?: string;
   loadState?: "pending" | "loading" | "ready" | "error";
   loadError?: string;
@@ -55,6 +56,10 @@ export type Project = {
   lyricsReview?: { start: number; end: number; reason: string }[];
   lyricsRevision?: string;
   lyricsPending?: boolean;
+  analysisPending?: boolean;
+  analysisRevision?: string;
+  harmonyEdited?: boolean;
+  timingEdited?: boolean;
   harmony?: Chord[];
   bpm?: number;
   demo?: boolean;
@@ -92,12 +97,17 @@ export type Job = {
     | "no_speech"
     | "failed"
     | "cancelled";
+  analysis_state?: "waiting" | "queued" | "running" | "ready" | "failed" | "cancelled" | "not_requested";
+  analysis_progress?: number;
+  analysis_stage?: string;
+  analysis_error?: string;
   lyrics_progress?: number;
   lyrics_stage?: string;
   lyrics_error?: string;
   result?: {
     separation?: { quality?: "balanced" | "studio"; engine?: string; shifts?: number; encoding?: string };
     duration: number;
+    analysis_revision?: string;
     bpm?: number;
     timing?: Timing;
     tracks: {

@@ -40,6 +40,8 @@ import {
   retryJob,
   reviseJob,
   requestLyrics,
+  requestAnalysis,
+  cancelAnalysis,
   cancelLyrics,
   createJob,
   getJob,
@@ -63,6 +65,7 @@ import { Timeline } from "./components/Timeline";
 import { TrackRow } from "./components/TrackRow";
 import { ArrangementView } from "./components/ArrangementView";
 import { measureGrid, normalizeNote } from "./arrangement";
+import { mergeAnalysis } from "./analysis";
 import { mergeLyrics } from "./lyrics";
 import { LyricsView } from "./components/LyricsView";
 import { CifraView } from "./components/CifraView";
@@ -540,7 +543,7 @@ export default function App() {
               setWaveforms((current) => ({ ...current, [id]: samples }));
             if (state === "loading")
               setJobNotice(
-                `Carregando ${merged.tracks.find((t) => t.id === id)?.name || "pista"}… O arranjo já está disponível.`,
+                `Carregando ${merged.tracks.find((t) => t.id === id)?.name || "pista"}…`,
               );
           },
         });
@@ -565,7 +568,9 @@ export default function App() {
         );
         if (!result.failures.length)
           notify(
-            "Pistas e arranjo carregados. Escolha o instrumento que quer tocar.",
+            resultJob.analysis_state === "queued" || resultJob.analysis_state === "running"
+              ? "Pistas carregadas. Cifras e notas continuam sendo geradas."
+              : "Pistas e arranjo carregados. Escolha o instrumento que quer tocar.",
           );
       } catch (e) {
         if (!controller.signal.aborted)
@@ -580,7 +585,7 @@ export default function App() {
     [update, notify],
   );
   useEffect(() => {
-    if (!project?.jobId || (project.jobApplied && !project.lyricsPending))
+    if (!project?.jobId || (project.jobApplied && !project.lyricsPending && !project.analysisPending))
       return;
     const id = project.jobId,
       base = project.jobBase || "";
@@ -593,17 +598,18 @@ export default function App() {
         setJob(status);
         setJobNotice("");
         if (status.status === "completed") {
-          update((current) => mergeLyrics(current, status));
+          update((current) => mergeAnalysis(mergeLyrics(current, status), status));
           if (!projectRef.current?.jobApplied) await applyResult(status, base);
           if (
             !["queued", "running", "waiting"].includes(
               status.lyrics_state || "",
-            )
+            ) &&
+            !["waiting","queued","running"].includes(status.analysis_state || "")
           )
             return;
         }
         if (status.status === "failed" || status.status === "cancelled") {
-          update((current) => mergeLyrics(current, status));
+          update((current) => mergeAnalysis(mergeLyrics(current, status), status));
           return;
         }
       } catch {
@@ -626,6 +632,7 @@ export default function App() {
     project?.jobId,
     project?.jobApplied,
     project?.lyricsPending,
+    project?.analysisPending,
     project?.jobBase,
     jobRevision,
     applyResult,
@@ -715,6 +722,7 @@ export default function App() {
               jobBase: base,
               jobApplied: false,
               lyricsPending: recognizeLyrics,
+              analysisPending: transcribe,
             },
       );
       setPanel("none");
@@ -790,6 +798,17 @@ export default function App() {
     } finally {
       setBusy("");
     }
+  };
+  const controlAnalysis = async (cancel: boolean) => {
+    const p = projectRef.current;
+    if (!p?.jobId) return;
+    try {
+      const status = await (cancel ? cancelAnalysis : requestAnalysis)(p.jobBase || "",p.jobId);
+      if (projectRef.current?.id !== p.id) return;
+      setJob(status);
+      update(current => mergeAnalysis(current,status));
+      setJobRevision(value => value+1);
+    } catch (error) { notify(message(error)); }
   };
   const generateLyrics = async () => {
     const p = projectRef.current;
@@ -1523,7 +1542,9 @@ export default function App() {
                       job.error ||
                       (jobActive
                         ? "Você pode continuar editando e sincronizando enquanto a IA trabalha."
-                        : project?.lyricsPending
+                        : project?.analysisPending
+                          ? `As faixas já podem tocar. ${job.analysis_stage || "Gerando cifras e notas"}${job.analysis_progress ? ` · ${job.analysis_progress}%` : ""}`
+                          : project?.lyricsPending
                           ? "As faixas estão disponíveis. A letra está sendo reconhecida; acompanhe na aba Letra e cifra."
                           : job.lyrics_state === "ready"
                             ? "Faixas, arranjo e letra disponíveis. Abra Letra e cifra para acompanhar a música."
@@ -1759,7 +1780,7 @@ export default function App() {
               <div className="refine-actions">
                 <button
                   className="button secondary compact"
-                  disabled={!!busy || jobActive || receiving || superiorApplied}
+                  disabled={!!busy || jobActive || receiving || superiorApplied || project.analysisPending}
                   onClick={() => void revise("quality")}
                 >
                   <Sparkles size={15} /> {superiorApplied
@@ -1879,6 +1900,22 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {project?.jobId && job?.status === "completed" && job.analysis_state && job.analysis_state !== "not_requested" && (
+                <div className="lyrics-status" role="status">
+                  <span>{project.analysisPending
+                    ? `${job.analysis_stage || "Cifras e notas na fila"}${job.analysis_progress ? ` · ${job.analysis_progress}%` : ""} · você já pode tocar as faixas.`
+                    : job.analysis_state === "failed"
+                      ? job.analysis_error || "A análise musical falhou; os áudios estão disponíveis."
+                      : job.analysis_state === "cancelled"
+                        ? "Análise musical cancelada; os áudios estão disponíveis."
+                        : job.analysis_state === "ready" ? "Análise musical concluída." : ""}</span>
+                  {project.analysisPending ? (
+                    <button className="button ghost compact" onClick={() => void controlAnalysis(true)}>Cancelar análise musical</button>
+                  ) : ["failed","cancelled"].includes(job.analysis_state || "") ? (
+                    <button className="button secondary compact" onClick={() => void controlAnalysis(false)}>Retomar cifras e notas</button>
+                  ) : null}
+                </div>
+              )}
               {tab === "text" && project && (
                 <div className="lyrics-status">
                   <div>
@@ -1980,10 +2017,11 @@ export default function App() {
                   onSeek={seek}
                   onGenerate={() => void revise("chords")}
                   onLyric={() => setTab("text")}
-                  busy={!!busy || jobActive || receiving}
+                  busy={!!busy || jobActive || receiving || !!project?.analysisPending}
                   onChange={(index, label) =>
                     update((p) => ({
                       ...p,
+                      harmonyEdited: true,
                       harmony: projectChords(p).map((chord, i) =>
                         i === index ? { ...chord, label } : chord,
                       ),
@@ -2008,6 +2046,7 @@ export default function App() {
                         t.id === id
                           ? {
                               ...t,
+                              notesEdited: true,
                               notes: note
                                 ? t.notes?.map((n, i) =>
                                     i === index ? note : n,
@@ -2022,6 +2061,7 @@ export default function App() {
                     update((p) => ({
                       ...p,
                       bpm,
+                      timingEdited: true,
                       timing: {
                         ...measureGrid(p.duration, bpm, numerator),
                         estimated: false,
@@ -2401,6 +2441,9 @@ export default function App() {
                     <option value="es">Espanhol</option>
                   </select>
                 </label>
+                {connection?.compute && <p className="field-help">
+                  Servidor: {connection.compute.cpus} núcleos disponíveis · {connection.compute.threads} threads de processamento.
+                </p>}
                 <p className="field-help">
                   Aplicativo {APP_VERSION} · revisão {APP_REVISION}
                   {connection?.build

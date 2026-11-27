@@ -4,6 +4,18 @@
 
 Estúdio web para carregar uma gravação, separar instrumentos e gerar automaticamente um arranjo em compassos, pautas, cifras e tablaturas, sincronizado com as pistas de áudio reais. Interface em português, compatível com computador e celular.
 
+## Motor e desempenho — v0.6.0
+
+O **Superior continua como padrão**, com os quatro modelos, duas estimativas Demucs, voz RoFormer, ensemble de bateria e especialista de baixo. Agora o processamento usa até oito threads dentro da quota/afinidade real do servidor, com controle explícito por `RIFFSYNC_CPU_THREADS`. O mesmo limite é aplicado ao PyTorch, ONNX e Whisper. A tela de configuração e `/api/health` mostram os núcleos e threads disponíveis.
+
+As pistas são liberadas assim que a separação termina. Cifras, notas e tablaturas seguem numa fila persistente de análise musical, com progresso, cancelamento e retomada próprios. A entrega posterior do arranjo preserva áudio, mixer, texto importado e correções. Erros de análise musical preservam a reprodução das faixas. Reiniciar o worker recupera a análise pendente sem repetir a separação.
+
+O separador também salva checkpoints completos por modelo, com hash da entrada, parâmetros, arquivos e estados aleatórios. Uma retomada reaproveita etapas verificadas e repete somente as incompletas/inválidas. A separação concluída é recuperada antes de refazer inferências. Esses caches são por tarefa, preservam a propriedade do upload e são removidos após a publicação do resultado.
+
+**RiffCore** é o novo motor experimental, baseado em um estudante de seis fontes inicializado com `htdemucs_6s` e treinado por destilação do Superior. Ele foi implementado com preparação explícita de rótulos, treino, avaliação com referências reais e integração para inferência de um único modelo. Estado atual: **protótipo treinável, sem pesos qualificados para produção**. O Superior permanece ativo. O teste de código executou um passo real de gradiente e uma inferência de seis saídas; isso não demonstra generalização musical.
+
+Veja [desenvolvimento do RiffCore](docs/riffcore.md) e [medições de desempenho](docs/performance.md). Aceleração medida em blocos locais não garante o mesmo fator em um Codespace com outra quantidade de CPUs. Não foi medido desempenho de GPU neste ambiente.
+
 ## Funcionalidades implementadas
 
 - Importação local de MP3, WAV, FLAC, OGG, M4A, AAC, WebM e Opus, conforme os codecs do navegador. WebM pode conter vídeo: o processamento extrai sua pista de áudio automaticamente.
@@ -144,7 +156,7 @@ Na raiz do repositório:
 git pull --ff-only && python3 scripts/restart.py
 ```
 
-Esse comando instala os motores de letra e RoFormer se estiverem ausentes, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.5.0**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
+Esse comando instala os motores de letra e RoFormer se estiverem ausentes, atualiza as dependências da interface quando o lockfile mudou, recompila a interface, encerra somente os processos RiffSync deste checkout e inicia API e worker. Confere a versão do build no endpoint de saúde **e compara o HTML efetivamente servido com o build recém-criado**. A confirmação inclui versão, revisão e identificador de build. Após recarregar a aba, a barra lateral deve mostrar **v0.6.0**. O script de início também recompila quando a revisão ou os arquivos da interface mudaram, mesmo que já exista `dist/index.html`.
 
 API e worker são iniciados em sessões independentes do terminal. Um bloqueio por diretório de dados impede dois workers simultâneos. Os uploads e projetos do diretório `data` são preservados. Não apague os dados do site no navegador: os projetos e a chave de acesso às tarefas são armazenados ali.
 

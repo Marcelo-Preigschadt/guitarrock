@@ -10,6 +10,7 @@ export type Health = {
   version?: string;
   build?: { version: string; revision: string; source: string };
   device: string;
+  compute?: {cpus: number; threads: number};
 };
 export function serverBase(): string {
   return localStorage.getItem("riffsync-api") || "";
@@ -75,6 +76,10 @@ export const cancelJob = (base: string, id: string) =>
   request<Job>(base, `/jobs/${id}/cancel`, { method: "POST" });
 export const retryJob = (base: string, id: string) =>
   request<Job>(base, `/jobs/${id}/retry`, { method: "POST" });
+export const requestAnalysis = (base: string, id: string) =>
+  request<Job>(base, `/jobs/${id}/analysis`, {method:"POST"});
+export const cancelAnalysis = (base: string, id: string) =>
+  request<Job>(base, `/jobs/${id}/analysis/cancel`, {method:"POST"});
 export const requestLyrics = (base: string, id: string, language = "") => {
   const body = new FormData();
   body.append("language", language);

@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from . import config, db
+from .compute import summary as compute_summary
 from .diagnostics import summarize_failure
 
 @asynccontextmanager
@@ -20,7 +21,7 @@ async def lifespan(_app):
     db.init()
     yield
 
-app = FastAPI(title="RiffSync API", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="RiffSync API", version="0.6.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=config.ORIGINS, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Workspace-Key", "Range", "If-Range"], expose_headers=["Content-Range", "Content-Length", "Accept-Ranges", "ETag"])
 
 def owner(x_workspace_key: str = Header(default="")):
@@ -39,7 +40,7 @@ def owned(job_id, key):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "worker_online": db.worker_online(),
-            "version": "0.5.0", "build": frontend_version(),
+            "version": "0.6.0", "build": frontend_version(), "compute": compute_summary(), "engine":config.ENGINE,
             "separation_available": bool(importlib.util.find_spec("demucs")) and bool(shutil.which("ffmpeg")),
             "quality_available": bool(importlib.util.find_spec("bs_roformer")),
             "transcription_available": bool(importlib.util.find_spec("basic_pitch")),
@@ -124,6 +125,23 @@ def retry_job(job_id: str, key=Depends(owner)):
     except ValueError as error:
         raise HTTPException(429, str(error)) from error
 
+@app.post('/api/jobs/{job_id}/analysis', status_code=202)
+def request_analysis(job_id: str, key=Depends(owner)):
+    job=owned(job_id,key)
+    if job['status']!='completed': raise HTTPException(409,'Aguarde as faixas ficarem prontas.')
+    if not db.worker_online(): raise HTTPException(503,'O worker está indisponível.')
+    if not all((config.DATA/job_id/'output'/track['file']).is_file() for track in job['result']['tracks']):
+        raise HTTPException(409,'Uma das faixas não está mais disponível no servidor.')
+    try: return db.public(db.request_analysis(job_id))
+    except ValueError as error: raise HTTPException(429,str(error)) from error
+
+@app.post('/api/jobs/{job_id}/analysis/cancel')
+def cancel_analysis(job_id: str, key=Depends(owner)):
+    job=owned(job_id,key)
+    if job.get('analysis_state') in {'queued','running'}:
+        job=db.update(job_id,analysis_state='cancelled',analysis_stage='Análise cancelada; as faixas continuam disponíveis')
+    return db.public(job)
+
 @app.post('/api/jobs/{job_id}/lyrics', status_code=202)
 def recognize_lyrics(job_id: str, language: str = Form(''), source: str = Form('original'), key=Depends(owner)):
     job=owned(job_id,key)
@@ -142,6 +160,8 @@ def revise_job(job_id: str, operation: str = Form('chords'), key=Depends(owner))
     parent = owned(job_id, key)
     if parent['status'] != 'completed' or not parent.get('result'):
         raise HTTPException(409, 'Aguarde as faixas ficarem prontas.')
+    if parent.get('analysis_state') in {'queued','running'}:
+        raise HTTPException(409,'A análise musical ainda está em andamento. Aguarde ou cancele somente a análise; as faixas já podem tocar.')
     if operation not in {'chords', 'vocals_drums', 'quality'}:
         raise HTTPException(422, 'Revisão inválida.')
     if not db.worker_online(): raise HTTPException(503, 'O worker de processamento está indisponível.')
@@ -199,6 +219,8 @@ def delete_job(job_id: str, key=Depends(owner)):
         raise HTTPException(409, "Cancele a tarefa antes de removê-la.")
     if job["status"] == "cancelled":
         raise HTTPException(409, "O worker ainda pode estar encerrando a tarefa. A limpeza automática removerá os arquivos.")
+    if job.get('analysis_state') in {'queued','running'}:
+        raise HTTPException(409,'Cancele a análise musical antes de remover a tarefa.')
     shutil.rmtree(config.DATA / job_id, ignore_errors=True)
     with db.connect() as c:
         c.execute("DELETE FROM jobs WHERE id=? AND owner=?", (job_id, key))

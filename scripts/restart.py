@@ -34,6 +34,9 @@ def main():
     roformer = subprocess.run([python,'-c',"from importlib.metadata import version; raise SystemExit(0 if version('bs-roformer') == '0.6.0' else 1)"], capture_output=True)
     if roformer.returncode:
         subprocess.run([python,'-m','pip','install','bs-roformer==0.6.0'],check=True)
+    resources = subprocess.run([python,'-c',"import importlib.util; raise SystemExit(0 if importlib.util.find_spec('pkg_resources') else 1)"],capture_output=True)
+    if resources.returncode:
+        subprocess.run([python,'-m','pip','install','setuptools>=68,<81'],check=True)
     subprocess.run(['node','frontend/scripts/install-deps.mjs'], check=True)
     subprocess.run(['npm','run','build'], check=True)
     expected = json.loads((root/'frontend/dist/version.json').read_text())

@@ -60,7 +60,7 @@ def estimate_chords(path):
     return valid_bpm, chords, measure_grid(duration, valid_bpm, beats.tolist())
 
 
-def transcribe_track(file, model):
+def transcribe_track(file, model, report=lambda _: None):
     """Decode note events directly into JSON, with bounded inference windows."""
     import soundfile as sf
     from basic_pitch.inference import run_inference
@@ -83,6 +83,7 @@ def transcribe_track(file, model):
                 if end > offset and start < offset + 30 and end - start >= .07 and amplitude >= .15:
                     events.append({"start": round(max(0, start), 4), "end": round(end, 4), "pitch": int(pitch), "velocity": round(float(amplitude), 3), "chunk": chunk})
             offset += 30; chunk += 1
+            report(min(1.,offset/length))
     return merge_chunk_notes(events)
 
 def harmonic_source(output, destination):
@@ -99,16 +100,33 @@ def harmonic_source(output, destination):
     return destination
 
 
+def onnx_model(path):
+    from basic_pitch.inference import Model
+    import onnxruntime as ort
+    from .compute import thread_budget
+    class BoundedModel(Model):
+        def __init__(self, file):
+            options=ort.SessionOptions()
+            options.intra_op_num_threads=thread_budget()
+            options.inter_op_num_threads=1
+            self.model_type=Model.MODEL_TYPES.ONNX
+            self.model=ort.InferenceSession(str(file),sess_options=options,providers=['CPUExecutionProvider'])
+    return BoundedModel(path)
+
+
 def run(directory, notes=True):
     import importlib.util
     output = Path(directory)
+    def progress(fraction,stage):
+        print('RIFFSYNC_ANALYSIS '+json.dumps({'fraction':fraction,'stage':stage}),flush=True)
+    progress(0.,'Reconhecendo os acordes do acompanhamento')
     result = {"bpm": None, "chords": [], "notes": {}, "timing": None, "warnings": []}
     try:
         with tempfile.TemporaryDirectory(prefix='harmony-',dir=output) as temporary:
             try:
                 source = harmonic_source(output, Path(temporary)/'accompaniment.wav')
             except (subprocess.SubprocessError, OSError):
-                source = output.parent/'source.wav'
+                source = next(output.parent.glob('input.*'), output.parent/'source.wav')
                 result['warnings'].append('Não foi possível reunir o acompanhamento; as cifras foram estimadas no áudio original.')
             result["bpm"], result["chords"], result["timing"] = estimate_chords(source)
     except Exception as error:
@@ -119,15 +137,18 @@ def run(directory, notes=True):
     if importlib.util.find_spec("basic_pitch"):
         try:
             from basic_pitch import build_icassp_2022_model_path, FilenameSuffix
-            from basic_pitch.inference import Model
-            model = Model(build_icassp_2022_model_path(FilenameSuffix.onnx))
-            for kind in ("guitar", "bass", "piano", "vocals"):
+            model = onnx_model(build_icassp_2022_model_path(FilenameSuffix.onnx))
+            kinds=[kind for kind in ('guitar','bass','piano','vocals') if (output/(kind+'.wav')).is_file()]
+            for index,kind in enumerate(kinds):
                 file = output / f"{kind}.wav"
                 if not file.exists():
                     continue
                 try:
                     print(f"Transcrevendo eventos de {kind}", flush=True)
-                    notes = transcribe_track(file, model)
+                    def report(fraction):
+                        progress(.1+.8*(index+fraction)/max(1,len(kinds)),f'Gerando notas de {kind}')
+                    report(0.)
+                    notes = transcribe_track(file, model,report)
                     result["notes"][kind] = assign_strings(notes, kind) if kind in ("guitar", "bass") else notes
                 except Exception as error:
                     result["warnings"].append(f"A transcrição de {kind} falhou ({type(error).__name__}). O áudio separado continua disponível.")
@@ -135,6 +156,7 @@ def run(directory, notes=True):
             result["warnings"].append(f"O modelo de notas não carregou ({type(error).__name__}). Use a importação manual.")
     else:
         result["warnings"].append("Basic Pitch não está instalado. Importe cifras ou tablaturas para sincronizar manualmente.")
+    progress(.92,'Marcando os ataques de bateria')
     try:
         import librosa
         drum_file = output / "drums.wav"

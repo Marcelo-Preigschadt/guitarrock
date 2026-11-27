@@ -14,6 +14,8 @@ export function mergeResult(project: Project, job: Job): Project {
     ...project,
     jobResultId: job.id,
     jobApplied: false,
+    analysisPending: ["waiting","queued","running"].includes(job.analysis_state || ""),
+    analysisRevision: job.result.analysis_revision,
     duration: job.result.duration,
     bpm: job.result.bpm,
     timing: job.result.timing,
